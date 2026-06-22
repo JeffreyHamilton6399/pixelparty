@@ -3,7 +3,6 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Trash2 } from "lucide-react";
 import { usePixelRoom } from "@/hooks/use-pixel-room";
 import { Header } from "./header";
@@ -15,8 +14,10 @@ import {
   PixelCanvas,
   type PixelCanvasHandle,
   type Tool,
+  type BrushSize,
 } from "./pixel-canvas";
 import { TermsModal } from "./terms-modal";
+import { GalleryDialog } from "./gallery-dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -37,7 +38,9 @@ export function Room({ roomId, onLeave }: RoomProps) {
 
   const [tool, setTool] = useState<Tool>("pencil");
   const [color, setColor] = useState<string>(START_COLOR);
+  const [brushSize, setBrushSize] = useState<BrushSize>(1);
   const [termsOpen, setTermsOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
@@ -46,14 +49,25 @@ export function Room({ roomId, onLeave }: RoomProps) {
         playerCount={api.playerCount}
         connected={api.connected}
         onExport={() => canvasRef.current?.exportPng()}
+        onOpenGallery={() => setGalleryOpen(true)}
         onLeave={onLeave}
         onOpenTerms={() => setTermsOpen(true)}
       />
 
       <main className="flex min-h-0 flex-1">
         {/* Desktop sidebar: tools + picker + size + clear */}
-        <aside className="hidden w-[84px] shrink-0 flex-col gap-2 border-r border-border p-2 md:flex">
-          <ToolBar tool={tool} onChange={setTool} orientation="vertical" />
+        <aside className="hidden w-[72px] shrink-0 flex-col gap-2 border-r border-border p-2 md:flex">
+          <ToolBar
+            tool={tool}
+            onChange={setTool}
+            brushSize={brushSize}
+            onBrushSize={setBrushSize}
+            canUndo={api.canUndo}
+            canRedo={api.canRedo}
+            onUndo={api.undo}
+            onRedo={api.redo}
+            orientation="vertical"
+          />
           <Separator />
           <ColorPicker color={color} onChange={setColor} layout="stacked" />
           <Separator />
@@ -71,7 +85,7 @@ export function Room({ roomId, onLeave }: RoomProps) {
                   size="icon"
                   onClick={api.clear}
                   aria-label="Clear canvas"
-                  className="h-9 w-9 shrink-0 rounded-md border border-border text-muted-foreground hover:text-rose-500"
+                  className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-rose-500"
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -82,10 +96,10 @@ export function Room({ roomId, onLeave }: RoomProps) {
         </aside>
 
         {/* Canvas */}
-        <section className="relative flex min-h-0 flex-1 items-center justify-center bg-muted/40 p-2 md:p-3">
+        <section className="relative flex min-h-0 flex-1 items-center justify-center bg-muted/30 p-2 md:p-3">
           {!api.connected && (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center pt-2">
-              <span className="rounded-full bg-background/80 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur">
+            <div className="pointer-events-none absolute left-1/2 top-2 z-10 -translate-x-1/2">
+              <span className="rounded-full bg-background/80 px-2.5 py-0.5 text-[11px] text-muted-foreground backdrop-blur">
                 Connecting…
               </span>
             </div>
@@ -95,13 +109,11 @@ export function Room({ roomId, onLeave }: RoomProps) {
             size={api.size}
             tool={tool}
             color={color}
+            brushSize={brushSize}
             pixelsRef={api.pixelsRef}
             dirtyRef={api.dirtyRef}
-            cursorsRef={api.cursorsRef}
-            flashesRef={api.flashesRef}
             myId={api.myId}
             onPlace={api.place}
-            onCursor={api.setCursor}
             onPickColor={setColor}
           />
         </section>
@@ -123,13 +135,23 @@ export function Room({ roomId, onLeave }: RoomProps) {
             size="icon"
             onClick={api.clear}
             aria-label="Clear canvas"
-            className="h-9 w-9 shrink-0 rounded-md border border-border text-muted-foreground hover:text-rose-500"
+            className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-rose-500"
           >
             <Trash2 className="h-4 w-4" />
           </Button>
         </div>
         <div className="overflow-x-auto">
-          <ToolBar tool={tool} onChange={setTool} orientation="horizontal" />
+          <ToolBar
+            tool={tool}
+            onChange={setTool}
+            brushSize={brushSize}
+            onBrushSize={setBrushSize}
+            canUndo={api.canUndo}
+            canRedo={api.canRedo}
+            onUndo={api.undo}
+            onRedo={api.redo}
+            orientation="horizontal"
+          />
         </div>
       </div>
 
@@ -139,6 +161,12 @@ export function Room({ roomId, onLeave }: RoomProps) {
         open={termsOpen}
         mode="view"
         onClose={() => setTermsOpen(false)}
+      />
+      <GalleryDialog
+        open={galleryOpen}
+        onOpenChange={setGalleryOpen}
+        onCapture={() => canvasRef.current?.snapshot() ?? null}
+        onLoad={api.loadPixels}
       />
     </div>
   );

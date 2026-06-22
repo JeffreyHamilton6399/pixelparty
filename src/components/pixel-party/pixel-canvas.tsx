@@ -11,8 +11,6 @@ import {
   type CanvasSize,
   type PixelColor,
   type PixelUpdate,
-  type CursorState,
-  type FlashState,
 } from "@/lib/pixel-party/constants";
 
 export type Tool =
@@ -23,35 +21,34 @@ export type Tool =
   | "eraser"
   | "eyedropper";
 
+export type BrushSize = 1 | 2 | 3;
+
 export interface PixelCanvasHandle {
   exportPng: () => void;
+  /** Snapshot the current pixels (for gallery save). */
+  snapshot: () => { size: CanvasSize; pixels: PixelColor[] };
 }
 
 interface PixelCanvasProps {
   size: CanvasSize;
   tool: Tool;
   color: string;
+  brushSize: BrushSize;
   pixelsRef: React.MutableRefObject<PixelColor[]>;
   dirtyRef: React.MutableRefObject<Set<number> | "all">;
-  cursorsRef: React.MutableRefObject<Map<string, CursorState>>;
-  flashesRef: React.MutableRefObject<FlashState[]>;
   myId: string | null;
   onPlace: (pixels: PixelUpdate[]) => void;
-  onCursor: (x: number, y: number) => void;
   onPickColor: (hex: string) => void;
 }
 
-const FLASH_DURATION_MS = 380;
-
 /**
  * Grid-based pixel canvas. Renders to an HTML canvas imperatively via a
- * requestAnimationFrame loop that only redraws dirty cells. Pointer/touch
- * drawing, line + rectangle shape previews, flood-fill, eyedropper, live
- * remote cursors, and the amber "pixel flash" feedback are all handled here
- * without touching React state on the hot path.
+ * requestAnimationFrame loop that only redraws dirty cells. No cursor dots, no
+ * amber flash — just the pixels (minimal, clean VFX). Pointer/touch drawing,
+ * line + rectangle shape previews, flood-fill, eyedropper, and brush size are
+ * all handled here without touching React state on the hot path.
  *
- * The canvas background and grid lines are theme-aware (light mode actually
- * changes the drawing area, not just the chrome).
+ * The canvas background + grid lines are theme-aware.
  */
 export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
   function PixelCanvas(props, ref) {
@@ -59,41 +56,34 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       size,
       tool,
       color,
+      brushSize,
       pixelsRef,
       dirtyRef,
-      cursorsRef,
-      flashesRef,
       myId,
       onPlace,
-      onCursor,
       onPickColor,
     } = props;
 
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const flashCanvasRef = useRef<HTMLCanvasElement>(null);
     const previewCanvasRef = useRef<HTMLCanvasElement>(null);
-    const cursorLayerRef = useRef<HTMLDivElement>(null);
 
     const cellPxRef = useRef(8);
     const [cellPx, setCellPx] = useState(8);
     const drawingRef = useRef(false);
     const lastCellRef = useRef<{ x: number; y: number } | null>(null);
-    // Shape-tool (line/rectangle) drag state.
     const previewingRef = useRef(false);
     const previewStartRef = useRef<{ x: number; y: number } | null>(null);
     const lastShapeEndRef = useRef<{ x: number; y: number } | null>(null);
 
-    /* ------- Single effect: resize + rAF (dirty pixels, flashes, cursors) ------- */
+    /* ------- Single effect: resize + rAF (dirty pixels only) ------- */
     useEffect(() => {
       const canvas = canvasRef.current;
-      const flashCanvas = flashCanvasRef.current;
       const previewCanvas = previewCanvasRef.current;
       const container = containerRef.current;
-      if (!canvas || !flashCanvas || !previewCanvas || !container) return;
+      if (!canvas || !previewCanvas || !container) return;
       const ctx = canvas.getContext("2d");
-      const fctx = flashCanvas.getContext("2d");
-      if (!ctx || !fctx) return;
+      if (!ctx) return;
       ctx.imageSmoothingEnabled = false;
 
       const drawCell = (idx: number, cp: number) => {
@@ -122,7 +112,7 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
         cellPxRef.current = cp;
         setCellPx(cp);
         const dim = size * cp;
-        for (const c of [canvas, flashCanvas, previewCanvas]) {
+        for (const c of [canvas, previewCanvas]) {
           c.width = dim;
           c.height = dim;
           c.style.width = `${dim}px`;
@@ -137,35 +127,10 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       const ro = new ResizeObserver(() => resize());
       ro.observe(container);
 
-      // Imperative cursor dot management (no React state).
-      const cursorEls = new Map<string, HTMLDivElement>();
-      const ensureCursorEl = (id: string, c: string) => {
-        let el = cursorEls.get(id);
-        if (!el) {
-          el = document.createElement("div");
-          el.style.position = "absolute";
-          el.style.width = "10px";
-          el.style.height = "10px";
-          el.style.borderRadius = "9999px";
-          el.style.border = "1.5px solid white";
-          el.style.boxShadow = "0 0 0 1px rgba(0,0,0,0.35)";
-          el.style.pointerEvents = "none";
-          el.style.willChange = "transform";
-          el.style.transform = "translate(-9999px,-9999px)";
-          el.style.transition = "transform 60ms linear";
-          cursorLayerRef.current?.appendChild(el);
-          cursorEls.set(id, el);
-        }
-        el.style.background = c;
-        return el;
-      };
-
       let raf = 0;
       const frame = () => {
         raf = requestAnimationFrame(frame);
         const cp = cellPxRef.current;
-
-        // 1. Dirty pixels.
         const dirty = dirtyRef.current;
         if (dirty === "all") {
           redrawAll(cp);
@@ -174,56 +139,16 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
           for (const idx of dirty) drawCell(idx, cp);
           dirty.clear();
         }
-
-        // 2. Amber flashes (preview layer is separate; this is flash-only).
-        const now = performance.now();
-        const flashes = flashesRef.current;
-        fctx.clearRect(0, 0, size * cp, size * cp);
-        if (flashes.length > 0) {
-          let writeIdx = 0;
-          for (let i = 0; i < flashes.length; i++) {
-            const f = flashes[i];
-            const age = now - f.ts;
-            if (age < 0 || age > FLASH_DURATION_MS) continue;
-            const alpha = 0.85 * (1 - age / FLASH_DURATION_MS);
-            fctx.fillStyle = `rgba(251, 191, 36, ${alpha})`;
-            fctx.fillRect(f.x * cp, f.y * cp, cp, cp);
-            flashes[writeIdx++] = f;
-          }
-          flashes.length = writeIdx;
-        }
-
-        // 3. Cursors.
-        const cursors = cursorsRef.current;
-        const nowMs = Date.now();
-        const seen = new Set<string>();
-        cursors.forEach((c, id) => {
-          if (id === myId) return;
-          if (nowMs - c.lastSeen > 6000) return;
-          seen.add(id);
-          const el = ensureCursorEl(id, c.color);
-          el.style.transform = `translate(${c.x * cp - 5}px, ${c.y * cp - 5}px)`;
-        });
-        for (const [id, el] of cursorEls) {
-          if (!seen.has(id)) {
-            el.remove();
-            cursorEls.delete(id);
-          }
-        }
       };
       raf = requestAnimationFrame(frame);
 
       return () => {
         cancelAnimationFrame(raf);
         ro.disconnect();
-        cursorEls.forEach((el) => el.remove());
-        cursorEls.clear();
       };
-    }, [size, pixelsRef, dirtyRef, flashesRef, cursorsRef, myId]);
+    }, [size, pixelsRef, dirtyRef, myId]);
 
-    /* ----------------------------- Drawing input ----------------------------- */
-    // These handlers are recreated every render, so they close over the latest
-    // `tool` and `color` props — no refs needed for those.
+    /* ----------------------------- Drawing helpers ----------------------------- */
 
     const pointerToCell = (
       clientX: number,
@@ -239,6 +164,21 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       return { x, y };
     };
 
+    /** Cells covered by a brush of the current size centered at (cx,cy). */
+    const brushCells = (cx: number, cy: number): { x: number; y: number }[] => {
+      if (brushSize === 1) return [{ x: cx, y: cy }];
+      const off = Math.floor(brushSize / 2);
+      const out: { x: number; y: number }[] = [];
+      for (let dy = 0; dy < brushSize; dy++) {
+        for (let dx = 0; dx < brushSize; dx++) {
+          const x = cx - off + dx;
+          const y = cy - off + dy;
+          if (x >= 0 && x < size && y >= 0 && y < size) out.push({ x, y });
+        }
+      }
+      return out;
+    };
+
     const placeAt = (x: number, y: number) => {
       const idx = y * size + x;
       if (tool === "eyedropper") {
@@ -251,44 +191,38 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
         if (updates.length) onPlace(updates);
         return;
       }
+      // pencil / eraser — apply brush size.
       const newColor = tool === "eraser" ? null : color;
-      if (pixelsRef.current[idx] === newColor) return;
-      onPlace([{ x, y, color: newColor }]);
+      const cells = brushCells(x, y);
+      const updates: PixelUpdate[] = [];
+      for (const c of cells) {
+        if (pixelsRef.current[c.y * size + c.x] !== newColor) {
+          updates.push({ x: c.x, y: c.y, color: newColor });
+        }
+      }
+      if (updates.length) onPlace(updates);
     };
 
     const placeLine = (from: { x: number; y: number }, to: { x: number; y: number }) => {
       if (tool !== "pencil" && tool !== "eraser") return;
       const newColor = tool === "eraser" ? null : color;
-      const cells: PixelUpdate[] = [];
-      let x0 = from.x;
-      let y0 = from.y;
-      const x1 = to.x;
-      const y1 = to.y;
-      const dx = Math.abs(x1 - x0);
-      const dy = Math.abs(y1 - y0);
-      const sx = x0 < x1 ? 1 : -1;
-      const sy = y0 < y1 ? 1 : -1;
-      let err = dx - dy;
-      while (true) {
-        const idx = y0 * size + x0;
-        if (pixelsRef.current[idx] !== newColor) {
-          cells.push({ x: x0, y: y0, color: newColor });
-        }
-        if (x0 === x1 && y0 === y1) break;
-        const e2 = 2 * err;
-        if (e2 > -dy) {
-          err -= dy;
-          x0 += sx;
-        }
-        if (e2 < dx) {
-          err += dx;
-          y0 += sy;
+      const linePath = lineCells(from.x, from.y, to.x, to.y);
+      const updates: PixelUpdate[] = [];
+      const seen = new Set<number>();
+      for (const p of linePath) {
+        for (const c of brushCells(p.x, p.y)) {
+          const idx = c.y * size + c.x;
+          if (seen.has(idx)) continue;
+          seen.add(idx);
+          if (pixelsRef.current[idx] !== newColor) {
+            updates.push({ x: c.x, y: c.y, color: newColor });
+          }
         }
       }
-      if (cells.length) onPlace(cells);
+      if (updates.length) onPlace(updates);
     };
 
-    /* ----- Shape preview (line / rectangle) drawn on the preview canvas ----- */
+    /* ----- Shape preview (line / rectangle) on the preview canvas ----- */
 
     const drawPreview = (start: { x: number; y: number }, end: { x: number; y: number }) => {
       const pc = previewCanvasRef.current;
@@ -301,7 +235,7 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
         tool === "line"
           ? lineCells(start.x, start.y, end.x, end.y)
           : rectCells(start.x, start.y, end.x, end.y);
-      pctx.globalAlpha = 0.6;
+      pctx.globalAlpha = 0.55;
       pctx.fillStyle = color;
       for (const c of cells) pctx.fillRect(c.x * cp, c.y * cp, cp, cp);
       pctx.globalAlpha = 1;
@@ -315,10 +249,7 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       pctx.clearRect(0, 0, pc.width, pc.height);
     };
 
-    const commitShape = (
-      start: { x: number; y: number },
-      end: { x: number; y: number }
-    ) => {
+    const commitShape = (start: { x: number; y: number }, end: { x: number; y: number }) => {
       const cells =
         tool === "line"
           ? lineCells(start.x, start.y, end.x, end.y)
@@ -338,6 +269,7 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       if (tool === "line" || tool === "rectangle") {
         previewingRef.current = true;
         previewStartRef.current = cell;
+        lastShapeEndRef.current = cell;
         drawPreview(cell, cell);
         return;
       }
@@ -347,13 +279,6 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
     };
 
     const handlePointerMove = (e: React.PointerEvent) => {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const rect = canvas.getBoundingClientRect();
-        const cp = cellPxRef.current;
-        onCursor((e.clientX - rect.left) / cp, (e.clientY - rect.top) / cp);
-      }
-
       const cell = pointerToCell(e.clientX, e.clientY);
 
       if (previewingRef.current) {
@@ -386,7 +311,7 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       lastCellRef.current = null;
     };
 
-    /* ----------------------------- Export ----------------------------- */
+    /* ----------------------------- Export / snapshot ----------------------------- */
 
     useImperativeHandle(
       ref,
@@ -416,6 +341,10 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
           a.click();
           a.remove();
         },
+        snapshot: () => ({
+          size,
+          pixels: pixelsRef.current.slice(),
+        }),
       }),
       [size]
     );
@@ -436,7 +365,6 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
             maxHeight: "100%",
           }}
         >
-          {/* Pixel layer — theme-aware background so light mode changes the box. */}
           <canvas
             ref={canvasRef}
             onPointerDown={handlePointerDown}
@@ -447,7 +375,6 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
             className="absolute inset-0 rounded-sm bg-background [touch-action:none] cursor-crosshair border border-border"
             style={{ imageRendering: "pixelated" }}
           />
-          {/* Grid overlay — theme-aware line color via CSS var. */}
           {showGrid && (
             <div
               className="pointer-events-none absolute inset-0"
@@ -458,22 +385,10 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
               }}
             />
           )}
-          {/* Amber flash overlay */}
-          <canvas
-            ref={flashCanvasRef}
-            className="pointer-events-none absolute inset-0"
-            style={{ imageRendering: "pixelated" }}
-          />
-          {/* Shape preview overlay (line / rectangle drag) */}
           <canvas
             ref={previewCanvasRef}
             className="pointer-events-none absolute inset-0"
             style={{ imageRendering: "pixelated" }}
-          />
-          {/* Cursor overlay */}
-          <div
-            ref={cursorLayerRef}
-            className="pointer-events-none absolute inset-0 overflow-visible"
           />
         </div>
       </div>
@@ -482,12 +397,7 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
 );
 
 /** Bresenham line cells. */
-function lineCells(
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number
-): { x: number; y: number }[] {
+function lineCells(x0: number, y0: number, x1: number, y1: number): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
   let x = x0;
   let y = y0;
@@ -512,13 +422,8 @@ function lineCells(
   return out;
 }
 
-/** Rectangle outline cells (4 edges, no duplicates on degenerate cases). */
-function rectCells(
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number
-): { x: number; y: number }[] {
+/** Rectangle outline cells. */
+function rectCells(x0: number, y0: number, x1: number, y1: number): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
   const xa = Math.min(x0, x1);
   const xb = Math.max(x0, x1);
