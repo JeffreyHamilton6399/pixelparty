@@ -113,43 +113,18 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 // Minimal HTTP handler so Render's health check (GET /) gets a 200 OK.
-// socket.io attaches to the same server for WebSocket upgrades.
+// socket.io (default path /socket.io) doesn't intercept plain "/" requests.
 const httpServer = createServer((req, res) => {
-  // Let socket.io handle its own routes (both /socket.io/* and the sandbox
-  // gateway path "/*" with XTransformPort).
-  if (
-    req.url &&
-    (req.url.startsWith("/socket.io") ||
-      req.url.includes("EIO=4") ||
-      req.url.includes("transport="))
-  ) {
-    return;
-  }
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("PixelParty realtime server OK");
 });
 
 const io = new Server(httpServer, {
-  // Default path "/socket.io" (production / Render / direct connection).
   cors: { origin: "*", methods: ["GET", "POST"] },
   pingTimeout: 60000,
   pingInterval: 25000,
   maxHttpBufferSize: 5 * 1024 * 1024,
 });
-
-// Second socket.io instance on path "/" for the sandbox gateway
-// (Caddy forwards ?XTransformPort=3004 with path "/"). Both share the same
-// httpServer; both emit to the same room state.
-const ioSandbox = new Server(httpServer, {
-  path: "/",
-  cors: { origin: "*", methods: ["GET", "POST"] },
-  pingTimeout: 60000,
-  pingInterval: 25000,
-  maxHttpBufferSize: 5 * 1024 * 1024,
-});
-
-// Wire the sandbox instance to the same handlers.
-attachHandlers(ioSandbox);
 
 /* ---------- Clear-canvas voting ---------- */
 

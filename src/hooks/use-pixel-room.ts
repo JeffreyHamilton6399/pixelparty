@@ -353,7 +353,6 @@ export function usePixelRoom(roomId: string, username: string): PixelRoomApi {
           timeout: 6000,
         })
       : io(`/?XTransformPort=${REALTIME_PORT}`, {
-          path: "/",
           transports: ["websocket"],
           forceNew: true,
           reconnection: true,
