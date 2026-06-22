@@ -488,12 +488,12 @@ function leaveRoom(socket: Socket, roomId: string, io: Server) {
       if (nextHost) {
         nextHost.role = "host";
         room.hostId = nextHost.id;
-        server.to(roomId).emit(EVENTS.HOST_CHANGED, { hostId: nextHost.id });
-        server.to(roomId).emit(EVENTS.ROLE_CHANGED, {
+        io.to(roomId).emit(EVENTS.HOST_CHANGED, { hostId: nextHost.id });
+        io.to(roomId).emit(EVENTS.ROLE_CHANGED, {
           playerId: nextHost.id,
           role: "host",
         });
-        server.to(roomId).emit(
+        io.to(roomId).emit(
           EVENTS.CHAT_BROADCAST,
           systemMessage(room, `${nextHost.name} is now the host`)
         );
@@ -504,19 +504,19 @@ function leaveRoom(socket: Socket, roomId: string, io: Server) {
     if (room.clearVote?.requesterId === socket.id) {
       if (room.clearVote.timer) clearTimeout(room.clearVote.timer);
       room.clearVote = null;
-      server.to(roomId).emit(EVENTS.CLEAR_VOTE_RESULT, {
+      io.to(roomId).emit(EVENTS.CLEAR_VOTE_RESULT, {
         passed: false,
         yes: 0,
         no: 0,
       });
     }
 
-    server.to(roomId).emit(EVENTS.PLAYER_LEFT, {
+    io.to(roomId).emit(EVENTS.PLAYER_LEFT, {
       playerId: socket.id,
       playerCount: room.players.size,
     });
     if (player) {
-      server.to(roomId).emit(
+      io.to(roomId).emit(
         EVENTS.CHAT_BROADCAST,
         systemMessage(room, `${player.name} left`)
       );
