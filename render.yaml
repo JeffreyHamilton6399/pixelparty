@@ -14,7 +14,7 @@ services:
     buildCommand: npm install
     startCommand: bun index.ts
     healthCheckPath: /
-    autoDeploy: false
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
