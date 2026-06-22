@@ -112,14 +112,44 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-const httpServer = createServer();
+// Minimal HTTP handler so Render's health check (GET /) gets a 200 OK.
+// socket.io attaches to the same server for WebSocket upgrades.
+const httpServer = createServer((req, res) => {
+  // Let socket.io handle its own routes (both /socket.io/* and the sandbox
+  // gateway path "/*" with XTransformPort).
+  if (
+    req.url &&
+    (req.url.startsWith("/socket.io") ||
+      req.url.includes("EIO=4") ||
+      req.url.includes("transport="))
+  ) {
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("PixelParty realtime server OK");
+});
+
 const io = new Server(httpServer, {
+  // Default path "/socket.io" (production / Render / direct connection).
+  cors: { origin: "*", methods: ["GET", "POST"] },
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  maxHttpBufferSize: 5 * 1024 * 1024,
+});
+
+// Second socket.io instance on path "/" for the sandbox gateway
+// (Caddy forwards ?XTransformPort=3004 with path "/"). Both share the same
+// httpServer; both emit to the same room state.
+const ioSandbox = new Server(httpServer, {
   path: "/",
   cors: { origin: "*", methods: ["GET", "POST"] },
   pingTimeout: 60000,
   pingInterval: 25000,
   maxHttpBufferSize: 5 * 1024 * 1024,
 });
+
+// Wire the sandbox instance to the same handlers.
+attachHandlers(ioSandbox);
 
 /* ---------- Clear-canvas voting ---------- */
 
@@ -194,7 +224,8 @@ function resolveClearVote(io: Server, roomId: string, room: RoomState) {
   }
 }
 
-io.on("connection", (socket: Socket) => {
+function attachHandlers(server: Server) {
+  server.on("connection", (socket: Socket) => {
   let currentRoomId: string | null = null;
   let currentPlayer: Player | null = null;
 
@@ -227,11 +258,11 @@ io.on("connection", (socket: Socket) => {
 
     syncRoomTo(io, roomId, room, socket.id);
 
-    io.to(roomId).emit(EVENTS.PLAYER_JOINED, {
+    server.to(roomId).emit(EVENTS.PLAYER_JOINED, {
       player: currentPlayer,
       playerCount: room.players.size,
     });
-    io.to(roomId).emit(
+    server.to(roomId).emit(
       EVENTS.CHAT_BROADCAST,
       systemMessage(room, `${name} joined`)
     );
@@ -295,11 +326,11 @@ io.on("connection", (socket: Socket) => {
     room.size = size;
     room.pixels = emptyPixels(size);
     room.lastActivity = Date.now();
-    io.to(currentRoomId).emit(EVENTS.SIZE_CHANGED, {
+    server.to(currentRoomId).emit(EVENTS.SIZE_CHANGED, {
       size: room.size,
       pixels: room.pixels,
     });
-    io.to(currentRoomId).emit(
+    server.to(currentRoomId).emit(
       EVENTS.CHAT_BROADCAST,
       systemMessage(room, `Canvas resized to ${size}×${size}`)
     );
@@ -317,8 +348,8 @@ io.on("connection", (socket: Socket) => {
     if (currentPlayer.role === "host" && others.length === 0) {
       room.pixels = emptyPixels(room.size);
       room.lastActivity = Date.now();
-      io.to(currentRoomId).emit(EVENTS.CLEARED, { size: room.size });
-      io.to(currentRoomId).emit(
+      server.to(currentRoomId).emit(EVENTS.CLEARED, { size: room.size });
+      server.to(currentRoomId).emit(
         EVENTS.CHAT_BROADCAST,
         systemMessage(room, "Canvas cleared by host")
       );
@@ -342,7 +373,7 @@ io.on("connection", (socket: Socket) => {
       room.clearVote.no.add(socket.id);
       room.clearVote.yes.delete(socket.id);
     }
-    io.to(currentRoomId).emit(EVENTS.CLEAR_VOTE_CAST, {
+    server.to(currentRoomId).emit(EVENTS.CLEAR_VOTE_CAST, {
       voterId: socket.id,
       yes: room.clearVote.yes.size,
       no: room.clearVote.no.size,
@@ -369,7 +400,7 @@ io.on("connection", (socket: Socket) => {
       text,
       ts: Date.now(),
     };
-    io.to(currentRoomId).emit(EVENTS.CHAT_BROADCAST, msg);
+    server.to(currentRoomId).emit(EVENTS.CHAT_BROADCAST, msg);
   });
 
   socket.on(EVENTS.KICK, (data: KickPayload) => {
@@ -386,11 +417,11 @@ io.on("connection", (socket: Socket) => {
     const target = data?.targetId;
     if (!target || target === socket.id) return;
     const targetPlayer = room.players.get(target);
-    io.to(target).emit(EVENTS.KICKED, {
+    server.to(target).emit(EVENTS.KICKED, {
       reason: "Kicked by the host",
     });
-    io.sockets.sockets.get(target)?.disconnect(true);
-    io.to(currentRoomId).emit(
+    server.sockets.sockets.get(target)?.disconnect(true);
+    server.to(currentRoomId).emit(
       EVENTS.CHAT_BROADCAST,
       systemMessage(room, `${targetPlayer?.name ?? "Someone"} was kicked`)
     );
@@ -414,11 +445,11 @@ io.on("connection", (socket: Socket) => {
     const targetPlayer = room.players.get(target);
     if (!targetPlayer || targetPlayer.role === "host") return; // can't demote host
     targetPlayer.role = role;
-    io.to(currentRoomId).emit(EVENTS.ROLE_CHANGED, {
+    server.to(currentRoomId).emit(EVENTS.ROLE_CHANGED, {
       playerId: target,
       role,
     });
-    io.to(currentRoomId).emit(
+    server.to(currentRoomId).emit(
       EVENTS.CHAT_BROADCAST,
       systemMessage(
         room,
@@ -429,14 +460,19 @@ io.on("connection", (socket: Socket) => {
   });
 
   socket.on("disconnect", () => {
-    if (currentRoomId) leaveRoom(socket, currentRoomId, io);
+    if (currentRoomId) leaveRoom(socket, currentRoomId, server);
     console.log(`[disconnect] ${socket.id}`);
   });
 
   socket.on("error", (err: unknown) => {
     console.error(`[socket error] ${socket.id}:`, err);
   });
-});
+  });
+}
+
+// Attach the same handlers to both socket.io instances (production path
+// /socket.io and sandbox path /).
+attachHandlers(io);
 
 function leaveRoom(socket: Socket, roomId: string, io: Server) {
   const room = rooms.get(roomId);
@@ -452,12 +488,12 @@ function leaveRoom(socket: Socket, roomId: string, io: Server) {
       if (nextHost) {
         nextHost.role = "host";
         room.hostId = nextHost.id;
-        io.to(roomId).emit(EVENTS.HOST_CHANGED, { hostId: nextHost.id });
-        io.to(roomId).emit(EVENTS.ROLE_CHANGED, {
+        server.to(roomId).emit(EVENTS.HOST_CHANGED, { hostId: nextHost.id });
+        server.to(roomId).emit(EVENTS.ROLE_CHANGED, {
           playerId: nextHost.id,
           role: "host",
         });
-        io.to(roomId).emit(
+        server.to(roomId).emit(
           EVENTS.CHAT_BROADCAST,
           systemMessage(room, `${nextHost.name} is now the host`)
         );
@@ -468,19 +504,19 @@ function leaveRoom(socket: Socket, roomId: string, io: Server) {
     if (room.clearVote?.requesterId === socket.id) {
       if (room.clearVote.timer) clearTimeout(room.clearVote.timer);
       room.clearVote = null;
-      io.to(roomId).emit(EVENTS.CLEAR_VOTE_RESULT, {
+      server.to(roomId).emit(EVENTS.CLEAR_VOTE_RESULT, {
         passed: false,
         yes: 0,
         no: 0,
       });
     }
 
-    io.to(roomId).emit(EVENTS.PLAYER_LEFT, {
+    server.to(roomId).emit(EVENTS.PLAYER_LEFT, {
       playerId: socket.id,
       playerCount: room.players.size,
     });
     if (player) {
-      io.to(roomId).emit(
+      server.to(roomId).emit(
         EVENTS.CHAT_BROADCAST,
         systemMessage(room, `${player.name} left`)
       );
