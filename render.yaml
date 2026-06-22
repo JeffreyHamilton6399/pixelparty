@@ -1,0 +1,20 @@
+# Render blueprint for the PixelParty realtime (socket.io) server.
+# One-click deploy: https://render.com/deploy?repo=https://github.com/JeffreyHamilton6399/pixelparty
+#
+# After deploy, copy the service URL (e.g. https://pixelparty-rt.onrender.com)
+# and set it as NEXT_PUBLIC_REALTIME_URL on Vercel. Then remove (or blank out)
+# NEXT_PUBLIC_PARTYKIT_HOST so the client uses the socket.io path.
+
+services:
+  - type: web
+    name: pixelparty-rt
+    runtime: node
+    rootDir: mini-services/pixel-server
+    plan: free
+    buildCommand: npm install
+    startCommand: node index.ts
+    healthCheckPath: /
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
