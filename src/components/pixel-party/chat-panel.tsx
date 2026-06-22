@@ -137,45 +137,49 @@ export function ChatPanel({
                       <Crown className="ml-auto h-3 w-3 shrink-0 text-emerald-500" />
                     ) : (
                       <span className="ml-auto flex items-center gap-0.5">
-                        {p.role === "viewer" ? (
-                          <Eye className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        {/* Single role button: shows current role icon, toggles on click (host only) */}
+                        {isHost && !isMe ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                            onClick={() =>
+                              onSetRole(
+                                p.id,
+                                p.role === "viewer" ? "drawer" : "viewer"
+                              )
+                            }
+                            aria-label={
+                              p.role === "viewer"
+                                ? "Allow drawing"
+                                : "Make viewer"
+                            }
+                            title={p.role === "viewer" ? "Viewer (click to allow drawing)" : "Drawer (click to make viewer)"}
+                          >
+                            {p.role === "viewer" ? (
+                              <Eye className="h-3 w-3" />
+                            ) : (
+                              <Pencil className="h-3 w-3" />
+                            )}
+                          </Button>
                         ) : (
-                          <Pencil className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          // Display-only for non-hosts / self
+                          p.role === "viewer" ? (
+                            <Eye className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <Pencil className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          )
                         )}
                         {isHost && !isMe && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                              onClick={() =>
-                                onSetRole(
-                                  p.id,
-                                  p.role === "viewer" ? "drawer" : "viewer"
-                                )
-                              }
-                              aria-label={
-                                p.role === "viewer"
-                                  ? "Allow drawing"
-                                  : "Make viewer"
-                              }
-                            >
-                              {p.role === "viewer" ? (
-                                <Pencil className="h-2.5 w-2.5" />
-                              ) : (
-                                <Eye className="h-2.5 w-2.5" />
-                              )}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 text-muted-foreground hover:text-rose-500"
-                              onClick={() => onKick(p.id)}
-                              aria-label={`Kick ${p.name}`}
-                            >
-                              <UserX className="h-2.5 w-2.5" />
-                            </Button>
-                          </>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-muted-foreground hover:text-rose-500"
+                            onClick={() => onKick(p.id)}
+                            aria-label={`Kick ${p.name}`}
+                          >
+                            <UserX className="h-2.5 w-2.5" />
+                          </Button>
                         )}
                       </span>
                     )}
