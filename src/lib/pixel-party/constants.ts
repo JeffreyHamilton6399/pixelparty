@@ -1,37 +1,22 @@
 /**
  * PixelParty shared constants & protocol types.
  *
- * These are imported by BOTH the Next.js frontend and the socket.io
- * mini-service so the wire protocol stays in sync. The mini-service
- * imports this file directly (it lives outside src/ but resolves via
- * the project root).
+ * Imported by BOTH the Next.js frontend and the socket.io mini-service.
  */
 
-/** The fixed 24-color palette — forces creativity (r/place style). */
-export const PALETTE: string[] = [
-  "#000000", "#1a1a2e", "#16213e", "#0f3460", "#533483", "#e94560",
-  "#f38ba8", "#f5c2e7", "#89b4fa", "#94e2d5", "#a6e3a1", "#f9e2af",
-  "#fab387", "#eba0ac", "#f77f00", "#fcbf49", "#eae2b7", "#d62828",
-  "#003049", "#2a9d8f", "#e76f51", "#264653", "#e9c46a", "#f4f1de",
-];
-
-/** Supported canvas sizes (square, N x N). Mobile capped at 64 for perf. */
+/** Supported canvas sizes (square, N x N). */
 export const CANVAS_SIZES = [16, 32, 64] as const;
 export type CanvasSize = (typeof CANVAS_SIZES)[number];
 
 export const DEFAULT_CANVAS_SIZE: CanvasSize = 32;
-export const MAX_CANVAS_SIZE_MOBILE: CanvasSize = 64;
 
-/**
- * Distinct cursor colors assigned to players by the server.
- * Hash socket.id -> index for a stable per-session color.
- */
+/** Distinct colors assigned to players (avatar + cursor accent). */
 export const CURSOR_COLORS: string[] = [
   "#f87171", "#fb923c", "#facc15", "#a3e635", "#34d399", "#22d3ee",
   "#60a5fa", "#a78bfa", "#f472b6", "#fb7185", "#fcd34d", "#4ade80",
 ];
 
-/** A pixel value is a palette hex string, or null for empty (erased). */
+/** A pixel value is a hex string, or null for empty (erased). */
 export type PixelColor = string | null;
 
 /** A single cell update. */
@@ -41,16 +26,22 @@ export interface PixelUpdate {
   color: PixelColor;
 }
 
+/** Player role in a room. */
+export type Role = "host" | "drawer" | "viewer";
+
 /** Player descriptor shared with clients. */
 export interface Player {
   id: string;
+  name: string;
   color: string;
+  role: Role;
 }
 
 /* ----------------------------- Client -> Server ---------------------------- */
 
 export interface JoinPayload {
   roomId: string;
+  name: string;
 }
 
 export interface SetSizePayload {
@@ -58,14 +49,20 @@ export interface SetSizePayload {
 }
 
 export interface PlacePayload {
-  /** Batch of pixels placed by this client in one frame. */
   pixels: PixelUpdate[];
 }
 
-export interface CursorPayload {
-  /** Fractional grid coordinates (0..size). */
-  x: number;
-  y: number;
+export interface ChatPayload {
+  text: string;
+}
+
+export interface KickPayload {
+  targetId: string;
+}
+
+export interface SetRolePayload {
+  targetId: string;
+  role: "drawer" | "viewer";
 }
 
 /* ----------------------------- Server -> Client ---------------------------- */
@@ -76,6 +73,7 @@ export interface SyncPayload {
   pixels: PixelColor[];
   players: Player[];
   yourId: string;
+  hostId: string;
 }
 
 export interface PlacedPayload {
@@ -83,11 +81,14 @@ export interface PlacedPayload {
   pixels: PixelUpdate[];
 }
 
-export interface CursorBroadcastPayload {
+export interface ChatMessage {
+  id: string;
   playerId: string;
-  x: number;
-  y: number;
+  playerName: string;
   color: string;
+  text: string;
+  ts: number;
+  system?: boolean;
 }
 
 export interface PlayerJoinedPayload {
@@ -105,26 +106,80 @@ export interface SizeChangedPayload {
   pixels: PixelColor[];
 }
 
+export interface RoleChangedPayload {
+  playerId: string;
+  role: Role;
+}
+
+export interface HostChangedPayload {
+  hostId: string;
+}
+
+export interface KickedPayload {
+  /** If you receive this, you were kicked. */
+  reason: string;
+}
+
+export interface ClearVoteRequestedPayload {
+  /** Who requested the clear. */
+  requesterId: string;
+  /** Total votes needed to pass (excludes requester, who auto-votes yes). */
+  votesNeeded: number;
+  /** ms until the vote auto-expires. */
+  timeoutMs: number;
+}
+
+export interface ClearVoteCastPayload {
+  voterId: string;
+  yes: number;
+  no: number;
+  votesNeeded: number;
+}
+
+export interface ClearVoteResultPayload {
+  passed: boolean;
+  yes: number;
+  no: number;
+}
+
+export interface ErrorPayload {
+  code: string;
+  message: string;
+}
+
 /** Event names — single source of truth. */
 export const EVENTS = {
   // c2s
   JOIN: "join",
   SET_SIZE: "set-size",
   PLACE: "place",
-  CURSOR: "cursor",
   CLEAR: "clear",
+  CHAT: "chat",
+  KICK: "kick",
+  SET_ROLE: "set-role",
+  VOTE_CLEAR: "vote-clear",
   // s2c
   SYNC: "sync",
   PLACED: "placed",
-  CURSOR_BROADCAST: "cursor-broadcast",
   PLAYER_JOINED: "player-joined",
   PLAYER_LEFT: "player-left",
   SIZE_CHANGED: "size-changed",
   CLEARED: "cleared",
+  CHAT_BROADCAST: "chat-broadcast",
+  ROLE_CHANGED: "role-changed",
+  HOST_CHANGED: "host-changed",
+  KICKED: "kicked",
+  CLEAR_VOTE_REQUESTED: "clear-vote-requested",
+  CLEAR_VOTE_CAST: "clear-vote-cast",
+  CLEAR_VOTE_RESULT: "clear-vote-result",
+  ERROR: "error",
 } as const;
 
 /** Room GC: delete rooms inactive for this long. */
 export const ROOM_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+/** How long a clear-canvas vote stays open. */
+export const CLEAR_VOTE_TIMEOUT_MS = 20 * 1000; // 20s
 
 /** Character set for room codes (no ambiguous chars: 0/O, 1/I). */
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -154,4 +209,10 @@ export function colorForPlayer(id: string): string {
     hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   }
   return CURSOR_COLORS[hash % CURSOR_COLORS.length];
+}
+
+/** Sanitize a display name. */
+export function sanitizeName(raw: string): string {
+  const clean = raw.trim().replace(/\s+/g, " ").slice(0, 16);
+  return clean || "Anon";
 }

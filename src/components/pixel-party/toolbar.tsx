@@ -18,17 +18,17 @@ import {
   Redo2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Tool, BrushSize } from "./pixel-canvas";
+import type { Tool } from "./pixel-canvas";
 
 interface ToolBarProps {
   tool: Tool;
   onChange: (tool: Tool) => void;
-  brushSize: BrushSize;
-  onBrushSize: (b: BrushSize) => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** When true (viewer mode), drawing tools are disabled. */
+  drawingDisabled?: boolean;
   orientation?: "vertical" | "horizontal";
 }
 
@@ -41,25 +41,22 @@ const TOOLS: { id: Tool; icon: typeof Pencil; label: string }[] = [
   { id: "eyedropper", icon: Pipette, label: "Eyedropper" },
 ];
 
-const BRUSHES: BrushSize[] = [1, 2, 3];
-
 export function ToolBar({
   tool,
   onChange,
-  brushSize,
-  onBrushSize,
   canUndo,
   canRedo,
   onUndo,
   onRedo,
+  drawingDisabled = false,
   orientation = "vertical",
 }: ToolBarProps) {
   const vertical = orientation === "vertical";
   return (
     <TooltipProvider delayDuration={300}>
       <div className={cn("flex gap-1.5", vertical ? "flex-col" : "flex-row")}>
-        {/* Undo / Redo */}
-        <div className={cn("flex gap-1", vertical ? "flex-row" : "flex-row")}>
+        {/* Undo / Redo (always available) */}
+        <div className="flex gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -102,13 +99,15 @@ export function ToolBar({
                   variant="ghost"
                   size="icon"
                   onClick={() => onChange(id)}
+                  disabled={drawingDisabled}
                   aria-label={label}
                   aria-pressed={active}
                   className={cn(
                     "h-8 w-8 shrink-0 rounded-md",
                     active
                       ? "bg-emerald-500/15 text-emerald-500"
-                      : "text-muted-foreground hover:text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                    drawingDisabled && "opacity-40"
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -120,52 +119,6 @@ export function ToolBar({
             </Tooltip>
           );
         })}
-
-        {/* Brush size — only relevant to pencil/eraser */}
-        {(tool === "pencil" || tool === "eraser") && (
-          <div
-            className={cn(
-              "mt-0.5 gap-1",
-              vertical ? "flex flex-col" : "flex flex-row"
-            )}
-            role="group"
-            aria-label="Brush size"
-          >
-            {BRUSHES.map((b) => {
-              const active = brushSize === b;
-              return (
-                <Tooltip key={b}>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onBrushSize(b)}
-                      aria-label={`Brush size ${b}`}
-                      aria-pressed={active}
-                      className={cn(
-                        "h-8 w-8 shrink-0 rounded-md",
-                        active
-                          ? "bg-emerald-500/15 text-emerald-500"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <span
-                        className="rounded-full bg-current"
-                        style={{
-                          width: b * 3 + 2,
-                          height: b * 3 + 2,
-                        }}
-                      />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side={vertical ? "right" : "top"}>
-                    Brush {b}px
-                  </TooltipContent>
-                </Tooltip>
-              );
-            })}
-          </div>
-        )}
       </div>
     </TooltipProvider>
   );

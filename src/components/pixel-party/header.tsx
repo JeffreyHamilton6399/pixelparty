@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Users, Download, Images } from "lucide-react";
+import { Users, Download, Images, Crown } from "lucide-react";
 import { Logo } from "./logo";
 import { RoomCode } from "./room-code";
 import { ShareButton } from "./share-button";
@@ -11,9 +11,11 @@ import { cn } from "@/lib/utils";
 interface HeaderProps {
   roomId: string;
   playerCount: number;
-  connected: boolean;
+  mode: "connecting" | "solo" | "connected";
+  isHost: boolean;
   onExport: () => void;
   onOpenGallery: () => void;
+  onOpenRoom: () => void;
   onLeave: () => void;
   onOpenTerms: () => void;
 }
@@ -21,9 +23,11 @@ interface HeaderProps {
 export function Header({
   roomId,
   playerCount,
-  connected,
+  mode,
+  isHost,
   onExport,
   onOpenGallery,
+  onOpenRoom,
   onLeave,
   onOpenTerms,
 }: HeaderProps) {
@@ -40,20 +44,30 @@ export function Header({
       <div className="flex items-center gap-1 sm:gap-1.5">
         <RoomCode code={roomId} className="hidden sm:inline-flex" />
 
-        {/* Player count — minimal: a dot + number */}
-        <div
-          className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground"
-          title={`${playerCount} player${playerCount === 1 ? "" : "s"} online`}
+        {/* Player count + connection mode */}
+        <button
+          onClick={onOpenRoom}
+          className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted/50"
+          title={
+            mode === "solo"
+              ? "Solo mode — deploy the realtime server for multiplayer"
+              : `${playerCount} player${playerCount === 1 ? "" : "s"} online`
+          }
         >
           <span
             className={cn(
               "h-1.5 w-1.5 rounded-full",
-              connected ? "bg-emerald-500" : "bg-rose-500"
+              mode === "connected"
+                ? "bg-emerald-500"
+                : mode === "solo"
+                ? "bg-amber-500"
+                : "bg-rose-500"
             )}
           />
           <Users className="h-3.5 w-3.5" />
           <span className="tabular-nums">{playerCount}</span>
-        </div>
+          {isHost && <Crown className="h-3 w-3 text-emerald-500" />}
+        </button>
 
         <Button
           variant="ghost"

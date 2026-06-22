@@ -21,7 +21,8 @@ export type Tool =
   | "eraser"
   | "eyedropper";
 
-export type BrushSize = 1 | 2 | 3;
+/** Brush size in pixels (1-8). 1 = single pixel. */
+export type BrushSize = number;
 
 export interface PixelCanvasHandle {
   exportPng: () => void;
@@ -166,11 +167,12 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
 
     /** Cells covered by a brush of the current size centered at (cx,cy). */
     const brushCells = (cx: number, cy: number): { x: number; y: number }[] => {
-      if (brushSize === 1) return [{ x: cx, y: cy }];
-      const off = Math.floor(brushSize / 2);
+      const b = Math.max(1, Math.min(8, brushSize));
+      if (b === 1) return [{ x: cx, y: cy }];
+      const off = Math.floor(b / 2);
       const out: { x: number; y: number }[] = [];
-      for (let dy = 0; dy < brushSize; dy++) {
-        for (let dx = 0; dx < brushSize; dx++) {
+      for (let dy = 0; dy < b; dy++) {
+        for (let dx = 0; dx < b; dx++) {
           const x = cx - off + dx;
           const y = cy - off + dy;
           if (x >= 0 && x < size && y >= 0 && y < size) out.push({ x, y });
