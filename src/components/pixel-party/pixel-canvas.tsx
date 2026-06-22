@@ -23,7 +23,8 @@ export type Tool =
   | "eyedropper"
   | "dither"
   | "spray"
-  | "move";
+  | "move"
+  | "text";
 
 /** Brush size in pixels (1-8). 1 = single pixel. */
 export type BrushSize = number;
@@ -37,6 +38,8 @@ export interface PixelCanvasHandle {
   flipH: (onPlace: (pixels: PixelUpdate[]) => void) => void;
   /** Flip the whole canvas vertically (mirror top-bottom). */
   flipV: (onPlace: (pixels: PixelUpdate[]) => void) => void;
+  /** Invert all pixel colors on the canvas. */
+  invert: (onPlace: (pixels: PixelUpdate[]) => void) => void;
 }
 
 interface PixelCanvasProps {
@@ -47,6 +50,8 @@ interface PixelCanvasProps {
   filled: boolean;
   mirror: MirrorMode;
   showGrid: boolean;
+  /** Text to stamp when the text tool is active. */
+  text: string;
   pixelsRef: React.MutableRefObject<PixelColor[]>;
   dirtyRef: React.MutableRefObject<Set<number> | "all">;
   myId: string | null;
@@ -76,6 +81,7 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       filled,
       mirror,
       showGrid,
+      text,
       pixelsRef,
       dirtyRef,
       myId,
@@ -253,6 +259,14 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       if (tool === "eyedropper") {
         const px = pixelsRef.current[idx];
         if (px) onPickColor(px);
+        return;
+      }
+      if (tool === "text") {
+        // Stamp the current text string as pixels, starting at (x, y).
+        const cells = textToCells(text, size, x, y);
+        const mirrored = withMirror(cells);
+        const updates = toUpdates(mirrored, color);
+        if (updates.length) onPlace(updates);
         return;
       }
       if (tool === "fill") {
@@ -559,6 +573,20 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
           }
           if (updates.length) onPlace(updates);
         },
+        invert: (onPlace) => {
+          const s = size;
+          const cur = pixelsRef.current;
+          const updates: PixelUpdate[] = [];
+          for (let i = 0; i < cur.length; i++) {
+            const px = cur[i];
+            if (!px) continue;
+            const inv = invertHex(px);
+            if (inv !== px) {
+              updates.push({ x: i % s, y: Math.floor(i / s), color: inv });
+            }
+          }
+          if (updates.length) onPlace(updates);
+        },
       }),
       [size]
     );
@@ -785,6 +813,57 @@ function ellipseFilledCells(
     const xspan = Math.round(rx * Math.sqrt(Math.max(0, 1 - yr * yr)));
     for (let x = -xspan; x <= xspan; x++) {
       push(cx + x, cy + y);
+    }
+  }
+  return out;
+}
+
+/** Invert a hex color (#rrggbb → #rrggbb with each channel = 255 - original). */
+function invertHex(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const r = 255 - ((n >> 16) & 0xff);
+  const g = 255 - ((n >> 8) & 0xff);
+  const b = 255 - (n & 0xff);
+  return "#" + ((r << 16) | (g << 8) | b).toString(16).padStart(6, "0");
+}
+
+/**
+ * Render text to pixel cells using a tiny offscreen canvas. The text is drawn
+ * at a small font size (one pixel per grid cell), then sampled: any pixel with
+ * alpha > 128 becomes a placed cell. Returns cells relative to (startX, startY).
+ */
+function textToCells(
+  text: string,
+  size: number,
+  startX: number,
+  startY: number
+): { x: number; y: number }[] {
+  const trimmed = text.slice(0, 32);
+  if (!trimmed) return [];
+  const fontSize = 8;
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, trimmed.length * (fontSize - 1));
+  c.height = fontSize + 2;
+  const ctx = c.getContext("2d");
+  if (!ctx) return [];
+  ctx.fillStyle = "#000";
+  ctx.font = `bold ${fontSize}px monospace`;
+  ctx.textBaseline = "top";
+  ctx.fillText(trimmed, 0, 1);
+  const data = ctx.getImageData(0, 0, c.width, c.height).data;
+  const out: { x: number; y: number }[] = [];
+  for (let py = 0; py < c.height; py++) {
+    for (let px = 0; px < c.width; px++) {
+      const alpha = data[(py * c.width + px) * 4 + 3];
+      if (alpha > 128) {
+        const gx = startX + px;
+        const gy = startY + py;
+        if (gx >= 0 && gx < size && gy >= 0 && gy < size) {
+          out.push({ x: gx, y: gy });
+        }
+      }
     }
   }
   return out;

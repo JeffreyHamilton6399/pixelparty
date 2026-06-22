@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Trash2, Eye, Keyboard, FlipHorizontal, FlipVertical } from "lucide-react";
+import { Trash2, Eye, Keyboard } from "lucide-react";
 import { usePixelRoom } from "@/hooks/use-pixel-room";
 import { useRoomAutosave } from "@/hooks/use-room-autosave";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -51,6 +51,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
   const [filled, setFilled] = useState(false);
   const [mirror, setMirror] = useState<MirrorMode>("none");
   const [showGrid, setShowGrid] = useState(true);
+  const [text, setText] = useState<string>("PIXEL");
   const [hoverColor, setHoverColor] = useState<string | null>(null);
   const [termsOpen, setTermsOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -84,6 +85,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
   const saveGallery = useCallback(() => setGalleryOpen(true), []);
   const flipH = useCallback(() => canvasRef.current?.flipH(api.place), [api.place]);
   const flipV = useCallback(() => canvasRef.current?.flipV(api.place), [api.place]);
+  const invert = useCallback(() => canvasRef.current?.invert(api.place), [api.place]);
 
   useKeyboardShortcuts({
     setTool,
@@ -171,6 +173,9 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
             onCycleMirror={cycleMirror}
             showGrid={showGrid}
             onToggleGrid={toggleGrid}
+            onFlipH={flipH}
+            onFlipV={flipV}
+            onInvert={invert}
             drawingDisabled={drawingDisabled}
             orientation="vertical"
           />
@@ -180,40 +185,16 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
           <Separator />
           <BrushButton size={brushSize} onChange={setBrushSize} disabled={brushDisabled} />
           <SizeButton size={api.size} onChange={api.setSize} disabled={api.myRole !== "host"} />
-          <Separator />
-          {/* Flip tools */}
-          <TooltipProvider delayDuration={300}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={flipH}
-                  disabled={drawingDisabled}
-                  aria-label="Flip horizontal"
-                  className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
-                >
-                  <FlipHorizontal className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Flip horizontal</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={flipV}
-                  disabled={drawingDisabled}
-                  aria-label="Flip vertical"
-                  className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
-                >
-                  <FlipVertical className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Flip vertical</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {/* Text input when text tool active */}
+          {tool === "text" && (
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value.slice(0, 32))}
+              placeholder="Type text…"
+              className="h-7 w-full rounded-md border border-border bg-background px-1 text-center text-[10px]"
+              aria-label="Text to stamp"
+            />
+          )}
           <Separator />
           <TooltipProvider delayDuration={300}>
             <Tooltip>
@@ -267,6 +248,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
             filled={filled}
             mirror={mirror}
             showGrid={showGrid}
+            text={text}
             pixelsRef={api.pixelsRef}
             dirtyRef={api.dirtyRef}
             myId={api.myId}
@@ -279,22 +261,21 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
 
       {/* Mobile bottom bar */}
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-border bg-background p-2 md:hidden">
+        {tool === "text" && (
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value.slice(0, 32))}
+            placeholder="Type text, then tap canvas…"
+            className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm"
+            aria-label="Text to stamp"
+          />
+        )}
         <div className="flex items-center gap-1.5">
           <ColorPicker color={color} onChange={setColor} layout="inline" />
           <RecentColors color={color} onPick={setColor} layout="row" />
           <Separator orientation="vertical" className="h-8" />
           <BrushButton size={brushSize} onChange={setBrushSize} disabled={brushDisabled} />
           <SizeButton size={api.size} onChange={api.setSize} disabled={api.myRole !== "host"} />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={flipH}
-            disabled={drawingDisabled}
-            aria-label="Flip horizontal"
-            className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
-          >
-            <FlipHorizontal className="h-4 w-4" />
-          </Button>
           <div className="flex-1" />
           <Button
             variant="ghost"
@@ -320,6 +301,9 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
             onCycleMirror={cycleMirror}
             showGrid={showGrid}
             onToggleGrid={toggleGrid}
+            onFlipH={flipH}
+            onFlipV={flipV}
+            onInvert={invert}
             drawingDisabled={drawingDisabled}
             orientation="horizontal"
           />
