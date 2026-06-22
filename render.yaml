@@ -12,7 +12,7 @@ services:
     rootDir: mini-services/pixel-server
     plan: free
     buildCommand: npm install
-    startCommand: node index.ts
+    startCommand: bun index.ts
     healthCheckPath: /
     autoDeploy: false
     envVars:
