@@ -17,16 +17,21 @@ export type Tool =
   | "pencil"
   | "line"
   | "rectangle"
+  | "ellipse"
   | "fill"
   | "eraser"
-  | "eyedropper";
+  | "eyedropper"
+  | "dither"
+  | "spray"
+  | "move";
 
 /** Brush size in pixels (1-8). 1 = single pixel. */
 export type BrushSize = number;
 
+export type MirrorMode = "none" | "horizontal" | "vertical" | "quad";
+
 export interface PixelCanvasHandle {
   exportPng: () => void;
-  /** Snapshot the current pixels (for gallery save). */
   snapshot: () => { size: CanvasSize; pixels: PixelColor[] };
 }
 
@@ -35,21 +40,27 @@ interface PixelCanvasProps {
   tool: Tool;
   color: string;
   brushSize: BrushSize;
+  filled: boolean;
+  mirror: MirrorMode;
+  showGrid: boolean;
   pixelsRef: React.MutableRefObject<PixelColor[]>;
   dirtyRef: React.MutableRefObject<Set<number> | "all">;
   myId: string | null;
   onPlace: (pixels: PixelUpdate[]) => void;
   onPickColor: (hex: string) => void;
+  /** Eyedropper hover color (null when not hovering a pixel). */
+  onHoverColor?: (hex: string | null) => void;
 }
+
+const SPRAY_RADIUS = 3;
 
 /**
  * Grid-based pixel canvas. Renders to an HTML canvas imperatively via a
- * requestAnimationFrame loop that only redraws dirty cells. No cursor dots, no
- * amber flash — just the pixels (minimal, clean VFX). Pointer/touch drawing,
- * line + rectangle shape previews, flood-fill, eyedropper, and brush size are
- * all handled here without touching React state on the hot path.
+ * requestAnimationFrame loop that only redraws dirty cells.
  *
- * The canvas background + grid lines are theme-aware.
+ * Tools: pencil, line, rectangle, ellipse, fill, eraser, eyedropper, dither,
+ * spray, move. Supports filled shapes, mirror mode (h/v/quad), grid toggle,
+ * and an eyedropper hover preview.
  */
 export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
   function PixelCanvas(props, ref) {
@@ -58,11 +69,15 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       tool,
       color,
       brushSize,
+      filled,
+      mirror,
+      showGrid,
       pixelsRef,
       dirtyRef,
       myId,
       onPlace,
       onPickColor,
+      onHoverColor,
     } = props;
 
     const containerRef = useRef<HTMLDivElement>(null);
@@ -76,6 +91,8 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
     const previewingRef = useRef(false);
     const previewStartRef = useRef<{ x: number; y: number } | null>(null);
     const lastShapeEndRef = useRef<{ x: number; y: number } | null>(null);
+    // For spray/move which use a different drag model.
+    const sprayMoveDraggingRef = useRef(false);
 
     /* ------- Single effect: resize + rAF (dirty pixels only) ------- */
     useEffect(() => {
@@ -165,6 +182,21 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       return { x, y };
     };
 
+    /** Apply mirror transforms to a cell, returning all mirrored positions. */
+    const mirrorCells = (x: number, y: number): { x: number; y: number }[] => {
+      const out = [{ x, y }];
+      if (mirror === "horizontal" || mirror === "quad") {
+        out.push({ x: size - 1 - x, y });
+      }
+      if (mirror === "vertical" || mirror === "quad") {
+        out.push({ x, y: size - 1 - y });
+      }
+      if (mirror === "quad") {
+        out.push({ x: size - 1 - x, y: size - 1 - y });
+      }
+      return out;
+    };
+
     /** Cells covered by a brush of the current size centered at (cx,cy). */
     const brushCells = (cx: number, cy: number): { x: number; y: number }[] => {
       const b = Math.max(1, Math.min(8, brushSize));
@@ -181,6 +213,37 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       return out;
     };
 
+    /** Expand a set of cells with their mirror counterparts. */
+    const withMirror = (cells: { x: number; y: number }[]): { x: number; y: number }[] => {
+      if (mirror === "none") return cells;
+      const seen = new Set<number>();
+      const out: { x: number; y: number }[] = [];
+      for (const c of cells) {
+        for (const m of mirrorCells(c.x, c.y)) {
+          if (m.x < 0 || m.x >= size || m.y < 0 || m.y >= size) continue;
+          const idx = m.y * size + m.x;
+          if (seen.has(idx)) continue;
+          seen.add(idx);
+          out.push(m);
+        }
+      }
+      return out;
+    };
+
+    /** Build PixelUpdate[] from cells + a color, skipping no-ops. */
+    const toUpdates = (
+      cells: { x: number; y: number }[],
+      newColor: PixelColor
+    ): PixelUpdate[] => {
+      const out: PixelUpdate[] = [];
+      for (const c of cells) {
+        if (pixelsRef.current[c.y * size + c.x] !== newColor) {
+          out.push({ x: c.x, y: c.y, color: newColor });
+        }
+      }
+      return out;
+    };
+
     const placeAt = (x: number, y: number) => {
       const idx = y * size + x;
       if (tool === "eyedropper") {
@@ -189,42 +252,93 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
         return;
       }
       if (tool === "fill") {
+        // Fill doesn't mirror — it floods the connected region.
         const updates = floodFill(pixelsRef.current, size, x, y, color);
         if (updates.length) onPlace(updates);
         return;
       }
-      // pencil / eraser — apply brush size.
-      const newColor = tool === "eraser" ? null : color;
-      const cells = brushCells(x, y);
-      const updates: PixelUpdate[] = [];
-      for (const c of cells) {
-        if (pixelsRef.current[c.y * size + c.x] !== newColor) {
-          updates.push({ x: c.x, y: c.y, color: newColor });
-        }
+      if (tool === "dither") {
+        // Checkerboard 2x2 pattern based on brush center parity.
+        const cells = brushCells(x, y).filter(
+          (c) => (c.x + c.y) % 2 === 0
+        );
+        const mirrored = withMirror(cells);
+        const updates = toUpdates(mirrored, color);
+        if (updates.length) onPlace(updates);
+        return;
       }
+      if (tool === "spray") {
+        // Scatter random pixels in a radius around the center.
+        const cells: { x: number; y: number }[] = [];
+        const r = Math.max(1, brushSize);
+        for (let i = 0; i < r * 2; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          const dist = Math.random() * SPRAY_RADIUS * r;
+          const sx = Math.round(x + Math.cos(ang) * dist);
+          const sy = Math.round(y + Math.sin(ang) * dist);
+          if (sx >= 0 && sx < size && sy >= 0 && sy < size) {
+            cells.push({ x: sx, y: sy });
+          }
+        }
+        const mirrored = withMirror(cells);
+        const updates = toUpdates(mirrored, color);
+        if (updates.length) onPlace(updates);
+        return;
+      }
+      // pencil / eraser — apply brush size + mirror.
+      const newColor = tool === "eraser" ? null : color;
+      const cells = withMirror(brushCells(x, y));
+      const updates = toUpdates(cells, newColor);
       if (updates.length) onPlace(updates);
     };
 
     const placeLine = (from: { x: number; y: number }, to: { x: number; y: number }) => {
-      if (tool !== "pencil" && tool !== "eraser") return;
+      if (tool !== "pencil" && tool !== "eraser" && tool !== "dither") return;
       const newColor = tool === "eraser" ? null : color;
       const linePath = lineCells(from.x, from.y, to.x, to.y);
-      const updates: PixelUpdate[] = [];
-      const seen = new Set<number>();
+      let cells: { x: number; y: number }[] = [];
       for (const p of linePath) {
-        for (const c of brushCells(p.x, p.y)) {
-          const idx = c.y * size + c.x;
-          if (seen.has(idx)) continue;
-          seen.add(idx);
-          if (pixelsRef.current[idx] !== newColor) {
-            updates.push({ x: c.x, y: c.y, color: newColor });
-          }
-        }
+        cells = cells.concat(brushCells(p.x, p.y));
       }
+      if (tool === "dither") {
+        cells = cells.filter((c) => (c.x + c.y) % 2 === 0);
+      }
+      const mirrored = withMirror(cells);
+      const updates = toUpdates(mirrored, newColor);
       if (updates.length) onPlace(updates);
     };
 
-    /* ----- Shape preview (line / rectangle) on the preview canvas ----- */
+    /** Spray/move continuous drag — called on every move while dragging. */
+    const dragPaint = (x: number, y: number) => {
+      if (tool === "spray") {
+        placeAt(x, y);
+        return;
+      }
+      if (tool === "move") {
+        // Move handled via pointer-down direction on commit; continuous noop.
+        return;
+      }
+    };
+
+    /* ----- Shape preview (line / rectangle / ellipse) on the preview canvas ----- */
+
+    const shapeCells = (
+      start: { x: number; y: number },
+      end: { x: number; y: number }
+    ): { x: number; y: number }[] => {
+      if (tool === "line") return lineCells(start.x, start.y, end.x, end.y);
+      if (tool === "rectangle") {
+        return filled
+          ? rectFilledCells(start.x, start.y, end.x, end.y)
+          : rectCells(start.x, start.y, end.x, end.y);
+      }
+      if (tool === "ellipse") {
+        return filled
+          ? ellipseFilledCells(size, start.x, start.y, end.x, end.y)
+          : ellipseCells(size, start.x, start.y, end.x, end.y);
+      }
+      return [];
+    };
 
     const drawPreview = (start: { x: number; y: number }, end: { x: number; y: number }) => {
       const pc = previewCanvasRef.current;
@@ -233,10 +347,8 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       if (!pctx) return;
       const cp = cellPxRef.current;
       pctx.clearRect(0, 0, pc.width, pc.height);
-      const cells =
-        tool === "line"
-          ? lineCells(start.x, start.y, end.x, end.y)
-          : rectCells(start.x, start.y, end.x, end.y);
+      let cells = shapeCells(start, end);
+      if (mirror !== "none") cells = withMirror(cells);
       pctx.globalAlpha = 0.55;
       pctx.fillStyle = color;
       for (const c of cells) pctx.fillRect(c.x * cp, c.y * cp, cp, cp);
@@ -252,15 +364,49 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
     };
 
     const commitShape = (start: { x: number; y: number }, end: { x: number; y: number }) => {
-      const cells =
-        tool === "line"
-          ? lineCells(start.x, start.y, end.x, end.y)
-          : rectCells(start.x, start.y, end.x, end.y);
+      let cells = shapeCells(start, end);
+      if (mirror !== "none") cells = withMirror(cells);
       if (cells.length) {
         onPlace(cells.map((c) => ({ x: c.x, y: c.y, color })));
       }
       clearPreview();
     };
+
+    /* ----- Move/shift tool: shift all pixels in the drag direction ----- */
+    const commitMove = (start: { x: number; y: number }, end: { x: number; y: number }) => {
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      if (dx === 0 && dy === 0) return;
+      // Only cardinal shifts make sense for pixel art; snap to dominant axis.
+      let shiftX = 0;
+      let shiftY = 0;
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        shiftX = Math.sign(dx);
+      } else {
+        shiftY = Math.sign(dy);
+      }
+      const cur = pixelsRef.current;
+      const next: PixelColor[] = new Array(size * size).fill(null);
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const nx = x + shiftX;
+          const ny = y + shiftY;
+          if (nx >= 0 && nx < size && ny >= 0 && ny < size) {
+            next[ny * size + nx] = cur[y * size + x];
+          }
+        }
+      }
+      // Build updates for every changed cell.
+      const updates: PixelUpdate[] = [];
+      for (let i = 0; i < next.length; i++) {
+        if (next[i] !== cur[i]) {
+          updates.push({ x: i % size, y: Math.floor(i / size), color: next[i] });
+        }
+      }
+      if (updates.length) onPlace(updates);
+    };
+
+    /* ----------------------------- Pointer handlers ----------------------------- */
 
     const handlePointerDown = (e: React.PointerEvent) => {
       const cell = pointerToCell(e.clientX, e.clientY);
@@ -268,11 +414,16 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       e.preventDefault();
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
 
-      if (tool === "line" || tool === "rectangle") {
+      if (tool === "line" || tool === "rectangle" || tool === "ellipse" || tool === "move") {
         previewingRef.current = true;
         previewStartRef.current = cell;
         lastShapeEndRef.current = cell;
-        drawPreview(cell, cell);
+        if (tool !== "move") drawPreview(cell, cell);
+        return;
+      }
+      if (tool === "spray") {
+        sprayMoveDraggingRef.current = true;
+        placeAt(cell.x, cell.y);
         return;
       }
       drawingRef.current = true;
@@ -283,12 +434,26 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
     const handlePointerMove = (e: React.PointerEvent) => {
       const cell = pointerToCell(e.clientX, e.clientY);
 
+      // Eyedropper hover preview.
+      if (tool === "eyedropper" && onHoverColor) {
+        if (cell) {
+          const px = pixelsRef.current[cell.y * size + cell.x];
+          onHoverColor(px);
+        } else {
+          onHoverColor(null);
+        }
+      }
+
       if (previewingRef.current) {
         const start = previewStartRef.current;
         if (start && cell) {
-          drawPreview(start, cell);
           lastShapeEndRef.current = cell;
+          if (tool !== "move") drawPreview(start, cell);
         }
+        return;
+      }
+      if (sprayMoveDraggingRef.current && cell) {
+        dragPaint(cell.x, cell.y);
         return;
       }
       if (!drawingRef.current || !cell) return;
@@ -303,14 +468,23 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       if (previewingRef.current) {
         const start = previewStartRef.current;
         const end = lastShapeEndRef.current ?? start;
-        if (start && end) commitShape(start, end);
+        if (start && end) {
+          if (tool === "move") commitMove(start, end);
+          else commitShape(start, end);
+        }
         previewingRef.current = false;
         previewStartRef.current = null;
         lastShapeEndRef.current = null;
         return;
       }
+      sprayMoveDraggingRef.current = false;
       drawingRef.current = false;
       lastCellRef.current = null;
+    };
+
+    const handlePointerLeave = () => {
+      if (onHoverColor) onHoverColor(null);
+      handlePointerUp();
     };
 
     /* ----------------------------- Export / snapshot ----------------------------- */
@@ -351,7 +525,7 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
       [size]
     );
 
-    const showGrid = cellPx >= 8;
+    const gridVisible = showGrid && cellPx >= 8;
 
     return (
       <div
@@ -372,12 +546,12 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerUp}
+            onPointerLeave={handlePointerLeave}
             onPointerCancel={handlePointerUp}
             className="absolute inset-0 rounded-sm bg-background [touch-action:none] cursor-crosshair border border-border"
             style={{ imageRendering: "pixelated" }}
           />
-          {showGrid && (
+          {gridVisible && (
             <div
               className="pointer-events-none absolute inset-0"
               style={{
@@ -386,6 +560,17 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
                 backgroundSize: `${cellPx}px ${cellPx}px`,
               }}
             />
+          )}
+          {/* Mirror axis guides */}
+          {mirror !== "none" && (
+            <div className="pointer-events-none absolute inset-0">
+              {(mirror === "horizontal" || mirror === "quad") && (
+                <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-emerald-500/30" />
+              )}
+              {(mirror === "vertical" || mirror === "quad") && (
+                <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-emerald-500/30" />
+              )}
+            </div>
           )}
           <canvas
             ref={previewCanvasRef}
@@ -438,6 +623,131 @@ function rectCells(x0: number, y0: number, x1: number, y1: number): { x: number;
   for (let y = ya + 1; y < yb; y++) {
     out.push({ x: xa, y });
     if (xb !== xa) out.push({ x: xb, y });
+  }
+  return out;
+}
+
+/** Rectangle filled cells. */
+function rectFilledCells(x0: number, y0: number, x1: number, y1: number): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  const xa = Math.min(x0, x1);
+  const xb = Math.max(x0, x1);
+  const ya = Math.min(y0, y1);
+  const yb = Math.max(y0, y1);
+  for (let y = ya; y <= yb; y++) {
+    for (let x = xa; x <= xb; x++) {
+      out.push({ x, y });
+    }
+  }
+  return out;
+}
+
+/** Ellipse outline cells (midpoint algorithm). */
+function ellipseCells(
+  size: number,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number
+): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  const cx = Math.round((x0 + x1) / 2);
+  const cy = Math.round((y0 + y1) / 2);
+  const rx = Math.max(0, Math.floor(Math.abs(x1 - x0) / 2));
+  const ry = Math.max(0, Math.floor(Math.abs(y1 - y0) / 2));
+  if (rx === 0 && ry === 0) return [{ x: cx, y: cy }];
+  const seen = new Set<number>();
+  const push = (x: number, y: number) => {
+    if (x < 0 || x >= size || y < 0 || y >= size) return;
+    const idx = y * size + x;
+    if (seen.has(idx)) return;
+    seen.add(idx);
+    out.push({ x, y });
+  };
+  if (rx === 0) {
+    for (let y = cy - ry; y <= cy + ry; y++) push(cx, y);
+    return out;
+  }
+  if (ry === 0) {
+    for (let x = cx - rx; x <= cx + rx; x++) push(x, cy);
+    return out;
+  }
+  // Midpoint ellipse, two regions.
+  let x = 0;
+  let y = ry;
+  let d1 = ry * ry - rx * rx * ry + (rx * rx) / 4;
+  let dx = 2 * ry * ry * x;
+  let dy = 2 * rx * rx * y;
+  while (dx < dy) {
+    push(cx + x, cy + y);
+    push(cx - x, cy + y);
+    push(cx + x, cy - y);
+    push(cx - x, cy - y);
+    if (d1 < 0) {
+      x++;
+      dx += 2 * ry * ry;
+      d1 += dx + ry * ry;
+    } else {
+      x++;
+      y--;
+      dx += 2 * ry * ry;
+      dy -= 2 * rx * rx;
+      d1 += dx - dy + ry * ry;
+    }
+  }
+  let d2 =
+    ry * ry * (x + 0.5) * (x + 0.5) +
+    rx * rx * (y - 1) * (y - 1) -
+    rx * rx * ry * ry;
+  while (y >= 0) {
+    push(cx + x, cy + y);
+    push(cx - x, cy + y);
+    push(cx + x, cy - y);
+    push(cx - x, cy - y);
+    if (d2 > 0) {
+      y--;
+      dy -= 2 * rx * rx;
+      d2 += rx * rx - dy;
+    } else {
+      y--;
+      x++;
+      dx += 2 * ry * ry;
+      dy -= 2 * rx * rx;
+      d2 += dx - dy + rx * rx;
+    }
+  }
+  return out;
+}
+
+/** Ellipse filled (scanline). */
+function ellipseFilledCells(
+  size: number,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number
+): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  const cx = Math.round((x0 + x1) / 2);
+  const cy = Math.round((y0 + y1) / 2);
+  const rx = Math.max(0, Math.floor(Math.abs(x1 - x0) / 2));
+  const ry = Math.max(0, Math.floor(Math.abs(y1 - y0) / 2));
+  if (rx === 0 && ry === 0) return [{ x: cx, y: cy }];
+  const seen = new Set<number>();
+  const push = (x: number, y: number) => {
+    if (x < 0 || x >= size || y < 0 || y >= size) return;
+    const idx = y * size + x;
+    if (seen.has(idx)) return;
+    seen.add(idx);
+    out.push({ x, y });
+  };
+  // For each y in the ellipse's vertical span, compute x span.
+  for (let y = -ry; y <= ry; y++) {
+    const yr = y / ry;
+    const xspan = Math.round(rx * Math.sqrt(Math.max(0, 1 - yr * yr)));
+    for (let x = -xspan; x <= xspan; x++) {
+      push(cx + x, cy + y);
+    }
   }
   return out;
 }
