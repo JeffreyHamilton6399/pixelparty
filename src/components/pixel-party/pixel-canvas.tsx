@@ -33,6 +33,10 @@ export type MirrorMode = "none" | "horizontal" | "vertical" | "quad";
 export interface PixelCanvasHandle {
   exportPng: () => void;
   snapshot: () => { size: CanvasSize; pixels: PixelColor[] };
+  /** Flip the whole canvas horizontally (mirror left-right). */
+  flipH: (onPlace: (pixels: PixelUpdate[]) => void) => void;
+  /** Flip the whole canvas vertically (mirror top-bottom). */
+  flipV: (onPlace: (pixels: PixelUpdate[]) => void) => void;
 }
 
 interface PixelCanvasProps {
@@ -521,6 +525,40 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
           size,
           pixels: pixelsRef.current.slice(),
         }),
+        flipH: (onPlace) => {
+          const s = size;
+          const cur = pixelsRef.current;
+          const next = new Array(s * s).fill(null) as PixelColor[];
+          for (let y = 0; y < s; y++) {
+            for (let x = 0; x < s; x++) {
+              next[y * s + (s - 1 - x)] = cur[y * s + x];
+            }
+          }
+          const updates: PixelUpdate[] = [];
+          for (let i = 0; i < next.length; i++) {
+            if (next[i] !== cur[i]) {
+              updates.push({ x: i % s, y: Math.floor(i / s), color: next[i] });
+            }
+          }
+          if (updates.length) onPlace(updates);
+        },
+        flipV: (onPlace) => {
+          const s = size;
+          const cur = pixelsRef.current;
+          const next = new Array(s * s).fill(null) as PixelColor[];
+          for (let y = 0; y < s; y++) {
+            for (let x = 0; x < s; x++) {
+              next[(s - 1 - y) * s + x] = cur[y * s + x];
+            }
+          }
+          const updates: PixelUpdate[] = [];
+          for (let i = 0; i < next.length; i++) {
+            if (next[i] !== cur[i]) {
+              updates.push({ x: i % s, y: Math.floor(i / s), color: next[i] });
+            }
+          }
+          if (updates.length) onPlace(updates);
+        },
       }),
       [size]
     );

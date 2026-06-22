@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Trash2, Eye, Keyboard } from "lucide-react";
+import { Trash2, Eye, Keyboard, FlipHorizontal, FlipVertical } from "lucide-react";
 import { usePixelRoom } from "@/hooks/use-pixel-room";
+import { useRoomAutosave } from "@/hooks/use-room-autosave";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { Header } from "./header";
 import { Footer } from "./footer";
@@ -21,7 +22,7 @@ import {
 } from "./pixel-canvas";
 import { TermsModal } from "./terms-modal";
 import { GalleryDialog } from "./gallery-dialog";
-import { HostPanel } from "./host-panel";
+import { ChatPanel } from "./chat-panel";
 import { ClearVoteDialog } from "./clear-vote-dialog";
 import { ShortcutsDialog } from "./shortcuts-dialog";
 import {
@@ -53,8 +54,21 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
   const [hoverColor, setHoverColor] = useState<string | null>(null);
   const [termsOpen, setTermsOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
-  const [roomOpen, setRoomOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [hasUnreadChat, setHasUnreadChat] = useState(false);
+
+  // Track unread chat (messages received while panel closed).
+  const chatLen = api.chat.length;
+  useEffect(() => {
+    if (chatLen > 0 && !chatOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHasUnreadChat(true);
+    }
+  }, [chatLen, chatOpen]);
+
+  // Room-scoped auto-save.
+  useRoomAutosave(roomId, api.size, api.pixelsRef, api.mode);
 
   const isViewer = api.myRole === "viewer";
   const drawingDisabled = isViewer;
@@ -68,6 +82,8 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
   const decBrush = useCallback(() => setBrushSize((b) => Math.max(1, b - 1)), []);
   const exportPng = useCallback(() => canvasRef.current?.exportPng(), []);
   const saveGallery = useCallback(() => setGalleryOpen(true), []);
+  const flipH = useCallback(() => canvasRef.current?.flipH(api.place), [api.place]);
+  const flipV = useCallback(() => canvasRef.current?.flipV(api.place), [api.place]);
 
   useKeyboardShortcuts({
     setTool,
@@ -82,6 +98,10 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
     saveGallery,
   });
 
+  const brushDisabled =
+    drawingDisabled ||
+    (tool !== "pencil" && tool !== "eraser" && tool !== "dither" && tool !== "spray");
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
       <Header
@@ -89,14 +109,17 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
         playerCount={api.playerCount}
         mode={api.mode}
         isHost={api.myRole === "host"}
+        hasUnreadChat={hasUnreadChat}
         onExport={exportPng}
         onOpenGallery={() => setGalleryOpen(true)}
-        onOpenRoom={() => setRoomOpen(true)}
+        onOpenChat={() => {
+          setChatOpen(true);
+          setHasUnreadChat(false);
+        }}
         onLeave={onLeave}
         onOpenTerms={() => setTermsOpen(true)}
       />
 
-      {/* Eyedropper hover indicator */}
       {tool === "eyedropper" && hoverColor && (
         <div className="pointer-events-none absolute left-1/2 top-14 z-20 -translate-x-1/2 rounded-md bg-foreground px-2 py-1 text-xs text-background shadow">
           <span
@@ -144,12 +167,42 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
           <ColorPicker color={color} onChange={setColor} layout="stacked" />
           <RecentColors color={color} onPick={setColor} layout="grid" />
           <Separator />
-          <BrushButton
-            size={brushSize}
-            onChange={setBrushSize}
-            disabled={drawingDisabled || (tool !== "pencil" && tool !== "eraser" && tool !== "dither" && tool !== "spray")}
-          />
+          <BrushButton size={brushSize} onChange={setBrushSize} disabled={brushDisabled} />
           <SizeButton size={api.size} onChange={api.setSize} disabled={api.myRole !== "host"} />
+          <Separator />
+          {/* Flip tools */}
+          <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={flipH}
+                  disabled={drawingDisabled}
+                  aria-label="Flip horizontal"
+                  className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
+                >
+                  <FlipHorizontal className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Flip horizontal</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={flipV}
+                  disabled={drawingDisabled}
+                  aria-label="Flip vertical"
+                  className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
+                >
+                  <FlipVertical className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Flip vertical</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <Separator />
           <TooltipProvider delayDuration={300}>
             <Tooltip>
@@ -164,7 +217,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
                   <Keyboard className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="right">Shortcuts (?)</TooltipContent>
+              <TooltipContent side="right">Shortcuts</TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <TooltipProvider delayDuration={300}>
@@ -219,12 +272,18 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
           <ColorPicker color={color} onChange={setColor} layout="inline" />
           <RecentColors color={color} onPick={setColor} layout="row" />
           <Separator orientation="vertical" className="h-8" />
-          <BrushButton
-            size={brushSize}
-            onChange={setBrushSize}
-            disabled={drawingDisabled || (tool !== "pencil" && tool !== "eraser" && tool !== "dither" && tool !== "spray")}
-          />
+          <BrushButton size={brushSize} onChange={setBrushSize} disabled={brushDisabled} />
           <SizeButton size={api.size} onChange={api.setSize} disabled={api.myRole !== "host"} />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={flipH}
+            disabled={drawingDisabled}
+            aria-label="Flip horizontal"
+            className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
+          >
+            <FlipHorizontal className="h-4 w-4" />
+          </Button>
           <div className="flex-1" />
           <Button
             variant="ghost"
@@ -265,9 +324,9 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
         onCapture={() => canvasRef.current?.snapshot() ?? null}
         onLoad={api.loadPixels}
       />
-      <HostPanel
-        open={roomOpen}
-        onOpenChange={setRoomOpen}
+      <ChatPanel
+        open={chatOpen}
+        onOpenChange={setChatOpen}
         players={api.players}
         myId={api.myId}
         myRole={api.myRole}

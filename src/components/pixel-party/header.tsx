@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Users, Download, Images, Crown } from "lucide-react";
+import { Users, Download, Images, Crown, MessageCircle } from "lucide-react";
 import { Logo } from "./logo";
 import { RoomCode } from "./room-code";
 import { ShareButton } from "./share-button";
@@ -13,9 +13,10 @@ interface HeaderProps {
   playerCount: number;
   mode: "connecting" | "solo" | "connected";
   isHost: boolean;
+  hasUnreadChat: boolean;
   onExport: () => void;
   onOpenGallery: () => void;
-  onOpenRoom: () => void;
+  onOpenChat: () => void;
   onLeave: () => void;
   onOpenTerms: () => void;
 }
@@ -25,9 +26,10 @@ export function Header({
   playerCount,
   mode,
   isHost,
+  hasUnreadChat,
   onExport,
   onOpenGallery,
-  onOpenRoom,
+  onOpenChat,
   onLeave,
   onOpenTerms,
 }: HeaderProps) {
@@ -41,18 +43,13 @@ export function Header({
         <Logo withText />
       </button>
 
-      <div className="flex items-center gap-1 sm:gap-1.5">
+      <div className="flex items-center gap-0.5 sm:gap-1">
         <RoomCode code={roomId} className="hidden sm:inline-flex" />
 
-        {/* Player count + connection mode */}
-        <button
-          onClick={onOpenRoom}
-          className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted/50"
-          title={
-            mode === "solo"
-              ? "Solo mode — deploy the realtime server for multiplayer"
-              : `${playerCount} player${playerCount === 1 ? "" : "s"} online`
-          }
+        {/* Player count */}
+        <div
+          className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground"
+          title={`${playerCount} player${playerCount === 1 ? "" : "s"} online`}
         >
           <span
             className={cn(
@@ -67,7 +64,21 @@ export function Header({
           <Users className="h-3.5 w-3.5" />
           <span className="tabular-nums">{playerCount}</span>
           {isHost && <Crown className="h-3 w-3 text-emerald-500" />}
-        </button>
+        </div>
+
+        {/* Chat */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onOpenChat}
+          className="relative h-8 w-8 text-muted-foreground hover:text-foreground"
+          aria-label="Open chat"
+        >
+          <MessageCircle className="h-4 w-4" />
+          {hasUnreadChat && (
+            <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          )}
+        </Button>
 
         <Button
           variant="ghost"
