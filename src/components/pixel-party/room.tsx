@@ -109,15 +109,26 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
         playerCount={api.playerCount}
         mode={api.mode}
         isHost={api.myRole === "host"}
-        hasUnreadChat={hasUnreadChat}
         onExport={exportPng}
         onOpenGallery={() => setGalleryOpen(true)}
-        onOpenChat={() => {
-          setChatOpen(true);
-          setHasUnreadChat(false);
-        }}
         onLeave={onLeave}
         onOpenTerms={() => setTermsOpen(true)}
+      />
+
+      {/* Floating chat widget (bottom-right) */}
+      <ChatPanel
+        players={api.players}
+        myId={api.myId}
+        myRole={api.myRole}
+        hostId={api.hostId}
+        chat={api.chat}
+        onSendChat={api.sendChat}
+        onKick={api.kick}
+        onSetRole={api.setRole}
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+        hasUnread={hasUnreadChat}
+        onRead={() => setHasUnreadChat(false)}
       />
 
       {tool === "eyedropper" && hoverColor && (
@@ -323,18 +334,6 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
         onOpenChange={setGalleryOpen}
         onCapture={() => canvasRef.current?.snapshot() ?? null}
         onLoad={api.loadPixels}
-      />
-      <ChatPanel
-        open={chatOpen}
-        onOpenChange={setChatOpen}
-        players={api.players}
-        myId={api.myId}
-        myRole={api.myRole}
-        hostId={api.hostId}
-        chat={api.chat}
-        onSendChat={api.sendChat}
-        onKick={api.kick}
-        onSetRole={api.setRole}
       />
       <ClearVoteDialog vote={api.clearVote} myId={api.myId} onVote={api.voteClear} />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />

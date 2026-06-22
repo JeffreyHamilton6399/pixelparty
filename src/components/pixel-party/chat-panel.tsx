@@ -1,22 +1,24 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Crown, Send, UserX, Eye, Pencil, ChevronDown, Users } from "lucide-react";
+import {
+  Crown,
+  Send,
+  UserX,
+  Eye,
+  Pencil,
+  ChevronDown,
+  Users,
+  MessageCircle,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Player, ChatMessage } from "@/lib/pixel-party/constants";
 
 interface ChatPanelProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   players: Player[];
   myId: string | null;
   myRole: string | null;
@@ -25,18 +27,19 @@ interface ChatPanelProps {
   onSendChat: (text: string) => void;
   onKick: (id: string) => void;
   onSetRole: (id: string, role: "drawer" | "viewer") => void;
+  /** Controlled open state. When false, renders just the floating button. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  hasUnread: boolean;
+  onRead: () => void;
 }
 
 /**
- * Messaging-app-style chat panel (slides in from the right).
- * - Player list is a collapsible header section (collapsed by default).
- * - Messages flow as bubbles: mine right-aligned (emerald), others left
- *   (muted, colored name), system messages centered as pills.
- * - Single small role-toggle button per player (host only).
+ * Floating chat widget anchored bottom-right.
+ * - Collapsed: a round chat button (with unread dot).
+ * - Expanded: a ~360px panel with messages + collapsible player list.
  */
 export function ChatPanel({
-  open,
-  onOpenChange,
   players,
   myId,
   myRole,
@@ -45,6 +48,10 @@ export function ChatPanel({
   onSendChat,
   onKick,
   onSetRole,
+  open,
+  onOpenChange,
+  hasUnread,
+  onRead,
 }: ChatPanelProps) {
   const [text, setText] = useState("");
   const [playersOpen, setPlayersOpen] = useState(false);
@@ -65,16 +72,20 @@ export function ChatPanel({
     }
   };
 
+  const toggleOpen = () => {
+    const next = !open;
+    onOpenChange(next);
+    if (next) onRead();
+  };
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-sm"
-      >
-        {/* Header: title + players toggle */}
-        <SheetHeader className="shrink-0 border-b border-border p-3 pb-2">
-          <SheetTitle className="flex items-center gap-2 text-sm">
-            <span>Chat</span>
+    <div className="pointer-events-none fixed bottom-12 right-2 z-40 flex flex-col items-end sm:bottom-4 sm:right-4">
+      {/* Expanded panel */}
+      {open && (
+        <div className="pointer-events-auto mb-2 flex h-[min(60dvh,440px)] w-[min(92vw,360px)] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl">
+          {/* Header */}
+          <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+            <span className="text-sm font-medium">Chat</span>
             <button
               onClick={() => setPlayersOpen((p) => !p)}
               className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted/50"
@@ -90,11 +101,20 @@ export function ChatPanel({
                 )}
               />
             </button>
-          </SheetTitle>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+              onClick={() => onOpenChange(false)}
+              aria-label="Close chat"
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
 
-          {/* Collapsible player list */}
+          {/* Collapsible players */}
           {playersOpen && (
-            <div className="mt-2 space-y-0.5">
+            <div className="max-h-40 shrink-0 overflow-y-auto border-b border-border px-2 py-1.5">
               {players.map((p) => {
                 const isMe = p.id === myId;
                 const isPlayerHost = p.id === hostId;
@@ -122,41 +142,40 @@ export function ChatPanel({
                         ) : (
                           <Pencil className="h-3 w-3 shrink-0 text-muted-foreground" />
                         )}
-                        {/* Single small role-toggle button (host only) */}
                         {isHost && !isMe && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                            onClick={() =>
-                              onSetRole(
-                                p.id,
-                                p.role === "viewer" ? "drawer" : "viewer"
-                              )
-                            }
-                            aria-label={
-                              p.role === "viewer"
-                                ? "Allow drawing"
-                                : "Make viewer"
-                            }
-                          >
-                            {p.role === "viewer" ? (
-                              <Pencil className="h-2.5 w-2.5" />
-                            ) : (
-                              <Eye className="h-2.5 w-2.5" />
-                            )}
-                          </Button>
-                        )}
-                        {isHost && !isMe && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 text-muted-foreground hover:text-rose-500"
-                            onClick={() => onKick(p.id)}
-                            aria-label={`Kick ${p.name}`}
-                          >
-                            <UserX className="h-2.5 w-2.5" />
-                          </Button>
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                              onClick={() =>
+                                onSetRole(
+                                  p.id,
+                                  p.role === "viewer" ? "drawer" : "viewer"
+                                )
+                              }
+                              aria-label={
+                                p.role === "viewer"
+                                  ? "Allow drawing"
+                                  : "Make viewer"
+                              }
+                            >
+                              {p.role === "viewer" ? (
+                                <Pencil className="h-2.5 w-2.5" />
+                              ) : (
+                                <Eye className="h-2.5 w-2.5" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 text-muted-foreground hover:text-rose-500"
+                              onClick={() => onKick(p.id)}
+                              aria-label={`Kick ${p.name}`}
+                            >
+                              <UserX className="h-2.5 w-2.5" />
+                            </Button>
+                          </>
                         )}
                       </span>
                     )}
@@ -165,81 +184,97 @@ export function ChatPanel({
               })}
             </div>
           )}
-        </SheetHeader>
 
-        {/* Messages */}
-        <ScrollArea className="min-h-0 flex-1" ref={scrollRef as never}>
-          <div className="space-y-1.5 p-3">
-            {chat.length === 0 ? (
-              <p className="py-8 text-center text-xs text-muted-foreground">
-                No messages yet. Say hi!
-              </p>
-            ) : (
-              chat.map((m) => {
-                if (m.system) {
+          {/* Messages */}
+          <ScrollArea className="min-h-0 flex-1" ref={scrollRef as never}>
+            <div className="space-y-1.5 p-3">
+              {chat.length === 0 ? (
+                <p className="py-8 text-center text-xs text-muted-foreground">
+                  No messages yet. Say hi!
+                </p>
+              ) : (
+                chat.map((m) => {
+                  if (m.system) {
+                    return (
+                      <div key={m.id} className="flex justify-center py-0.5">
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                          {m.text}
+                        </span>
+                      </div>
+                    );
+                  }
+                  const mine = m.playerId === myId;
                   return (
-                    <div key={m.id} className="flex justify-center py-0.5">
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                        {m.text}
-                      </span>
-                    </div>
-                  );
-                }
-                const mine = m.playerId === myId;
-                return (
-                  <div
-                    key={m.id}
-                    className={cn(
-                      "flex flex-col gap-0.5",
-                      mine ? "items-end" : "items-start"
-                    )}
-                  >
-                    {!mine && (
-                      <span
-                        className="px-1 text-[11px] font-medium"
-                        style={{ color: m.color }}
-                      >
-                        {m.playerName}
-                      </span>
-                    )}
                     <div
+                      key={m.id}
                       className={cn(
-                        "max-w-[80%] rounded-2xl px-2.5 py-1.5 text-sm",
-                        mine
-                          ? "rounded-br-sm bg-emerald-500 text-white"
-                          : "rounded-bl-sm bg-muted text-foreground"
+                        "flex flex-col gap-0.5",
+                        mine ? "items-end" : "items-start"
                       )}
                     >
-                      {m.text}
+                      {!mine && (
+                        <span
+                          className="px-1 text-[11px] font-medium"
+                          style={{ color: m.color }}
+                        >
+                          {m.playerName}
+                        </span>
+                      )}
+                      <div
+                        className={cn(
+                          "max-w-[80%] rounded-2xl px-2.5 py-1.5 text-sm",
+                          mine
+                            ? "rounded-br-sm bg-emerald-500 text-white"
+                            : "rounded-bl-sm bg-muted text-foreground"
+                        )}
+                      >
+                        {m.text}
+                      </div>
                     </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </ScrollArea>
+                  );
+                })
+              )}
+            </div>
+          </ScrollArea>
 
-        {/* Input */}
-        <div className="flex shrink-0 items-center gap-1.5 border-t border-border p-2">
-          <Input
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") send();
-            }}
-            placeholder="Message…"
-            maxLength={280}
-            className="h-8 text-sm"
-          />
-          <Button
-            size="icon"
-            className="h-8 w-8 shrink-0 bg-emerald-500 text-white hover:bg-emerald-600"
-            onClick={send}
-          >
-            <Send className="h-3.5 w-3.5" />
-          </Button>
+          {/* Input */}
+          <div className="flex shrink-0 items-center gap-1.5 border-t border-border p-2">
+            <Input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") send();
+              }}
+              placeholder="Message…"
+              maxLength={280}
+              className="h-8 text-sm"
+            />
+            <Button
+              size="icon"
+              className="h-8 w-8 shrink-0 bg-emerald-500 text-white hover:bg-emerald-600"
+              onClick={send}
+            >
+              <Send className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
-      </SheetContent>
-    </Sheet>
+      )}
+
+      {/* Floating toggle button */}
+      <button
+        onClick={toggleOpen}
+        className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
+        aria-label={open ? "Close chat" : "Open chat"}
+      >
+        {open ? (
+          <X className="h-5 w-5" />
+        ) : (
+          <MessageCircle className="h-5 w-5" />
+        )}
+        {hasUnread && !open && (
+          <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border-2 border-emerald-500 bg-rose-500" />
+        )}
+      </button>
+    </div>
   );
 }
