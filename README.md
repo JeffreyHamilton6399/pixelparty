@@ -130,7 +130,7 @@ Open the app through the gateway at **`http://localhost:81/`** (Caddy routes
 
 ---
 
-## Deploy (GitHub → Vercel + real-time host)
+## Deploy (GitHub → Vercel + PartyKit)
 
 ### 1. Push to GitHub
 
@@ -147,47 +147,49 @@ git push -u origin main
 `.gitignore` is already configured (ignores `node_modules`, `.next`, `*.log`,
 `.env*`, `.vercel`, `db/*.db`, etc.).
 
-### 2. Frontend → Vercel
+### 2. Real-time server → PartyKit (recommended, free, no cold-start)
 
-1. Import the repo at [vercel.com/new](https://vercel.com/new).
-2. Framework preset: **Next.js**. No build overrides needed —
-   `package.json` `build` is `next build`, `next.config.ts` has no
-   `output: "standalone"`.
-3. Add the environment variable:
-   - `NEXT_PUBLIC_REALTIME_URL` = the origin of your deployed real-time server
-     (e.g. `https://pixelparty-rt.onrender.com`).
-4. Deploy. Vercel builds the frontend; the client connects to your real-time
-   server via `NEXT_PUBLIC_REALTIME_URL` (falls back to the sandbox
-   `?XTransformPort=3004` gateway pattern when unset).
-
-### 3. Real-time server → any Node/Bun host
-
-`mini-services/pixel-server/` is a standalone socket.io server. Deploy it to any
-host that supports persistent processes + WebSockets (Render, Railway, Fly.io, a
-VPS, etc.):
+PartyKit runs on Cloudflare's edge — one party instance per room, in-memory
+state, no server to manage. Free tier stays warm (unlike Render).
 
 ```bash
-cd mini-services/pixel-server
-bun install
-bun index.ts        # listens on process.env.PORT (defaults to 3004)
+npm install -g partykit      # or: npx partykit
+npx partykit deploy          # from the repo root
 ```
 
-> **Root directory:** on Render/Railway set the service's root directory to
-> `mini-services/pixel-server`. The full repo is checked out, so the server's
-> `../../src/lib/pixel-party/constants` import resolves. The host injects `PORT`
-> automatically — the server reads `process.env.PORT` (falls back to 3004).
+This deploys `party/index.ts` and gives you a URL like:
+`pixelparty.<your-name>.partykit.dev`
 
-Make sure CORS allows your Vercel origin (the server already sets
-`cors: { origin: "*" }` — tighten this for production).
+> **First time only:** `npx partykit deploy` opens a browser to log you into
+> PartyKit (GitHub/Google). After that, deploys are instant.
 
-Set the deployed server origin as `NEXT_PUBLIC_REALTIME_URL` on Vercel and
-redeploy the frontend.
+### 3. Frontend → Vercel
 
-> **PartyKit alternative:** the event handlers in
-> [`mini-services/pixel-server/index.ts`](mini-services/pixel-server/index.ts)
-> map 1:1 to PartyKit's `onConnect`/`onMessage`. You can port them to a
-> `partykit/server.ts` and `npx partykit deploy` with no client changes — the
-> protocol in `src/lib/pixel-party/constants.ts` is identical.
+1. Import the repo at [vercel.com/new](https://vercel.com/new).
+2. Framework preset: **Next.js**. No build overrides — `build` is `next build`.
+3. Add the environment variable:
+   - **`NEXT_PUBLIC_PARTYKIT_HOST`** = `pixelparty.<your-name>.partykit.dev`
+     (your PartyKit host, no `https://` prefix, no trailing slash)
+4. Deploy. The client connects to PartyKit for real-time sync.
+
+### 4. Test it
+
+1. Open your Vercel URL → create a room → draw
+2. Copy the share link, open in a second browser/incognito
+3. Both player counts should show 2, pixels appear on both screens in real time
+
+### What if I don't configure PartyKit?
+
+The app still works — it falls back to **solo mode** (local-only: draw, undo,
+save to gallery, export PNG all work; just no multiplayer). An amber banner
+tells you. So you can deploy to Vercel first, add PartyKit later.
+
+### Alternative: socket.io server
+
+The repo also includes `mini-services/pixel-server/` (a socket.io server) for
+the sandbox. If you prefer socket.io over PartyKit for production, deploy it to
+Render/Railway/Fly and set `NEXT_PUBLIC_REALTIME_URL` instead. The wire protocol
+is identical — both servers implement the same events from `constants.ts`.
 
 ---
 
@@ -201,7 +203,6 @@ redeploy the frontend.
 - **Shape previews** (line/rectangle) render on a dedicated overlay canvas,
   committed only on pointer-up.
 - **Batched sends:** rapid placements are buffered and flushed every 50ms.
-- **Cursor throttle:** outgoing cursor moves are throttled to 30fps.
 - **Mobile:** canvas is width-constrained; `touch-action: none` keeps drawing
   smooth; bottom bar holds picker + size + clear + scrollable tools.
 

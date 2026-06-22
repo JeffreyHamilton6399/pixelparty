@@ -1,0 +1,8 @@
+{
+  "name": "pixelparty",
+  "main": "party/index.ts",
+  "compatibilityDate": "2024-11-01",
+  "parties": {
+    "room": "party/index.ts"
+  }
+}
