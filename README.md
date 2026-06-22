@@ -169,8 +169,13 @@ VPS, etc.):
 ```bash
 cd mini-services/pixel-server
 bun install
-bun index.ts        # listens on its PORT; set PORT to whatever the host gives
+bun index.ts        # listens on process.env.PORT (defaults to 3004)
 ```
+
+> **Root directory:** on Render/Railway set the service's root directory to
+> `mini-services/pixel-server`. The full repo is checked out, so the server's
+> `../../src/lib/pixel-party/constants` import resolves. The host injects `PORT`
+> automatically — the server reads `process.env.PORT` (falls back to 3004).
 
 Make sure CORS allows your Vercel origin (the server already sets
 `cors: { origin: "*" }` — tighten this for production).

@@ -32,7 +32,8 @@ import {
   type Player,
 } from "../../src/lib/pixel-party/constants";
 
-const PORT = 3004;
+// Sandbox uses 3004; hosting platforms (Render/Railway/Fly) inject PORT.
+const PORT = Number(process.env.PORT) || 3004;
 
 interface RoomState {
   size: CanvasSize;
