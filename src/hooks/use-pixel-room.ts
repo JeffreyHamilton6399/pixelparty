@@ -323,13 +323,13 @@ export function usePixelRoom(roomId: string, username: string): PixelRoomApi {
         setMode("connected");
         setMyId(socket.id ?? null);
       });
-      // Fallback to solo if we can't connect in 6s.
+      // Hard timeout: if the server is truly unreachable after 45s, go solo.
       connectTimeout = setTimeout(() => {
         if (!disposed && !connected) {
           socket.close();
           goSolo();
         }
-      }, 6000);
+      }, 45000);
       return () => {
         disposed = true;
         if (connectTimeout) clearTimeout(connectTimeout);
@@ -344,13 +344,18 @@ export function usePixelRoom(roomId: string, username: string): PixelRoomApi {
     }
 
     // Mode 3: Socket.io (sandbox gateway or explicit REALTIME_URL).
+    // When REALTIME_URL is set (production/Render), keep retrying for a long
+    // time — Render's free tier takes ~30s to wake from sleep. Only fall back
+    // to solo after 45s (server truly unreachable). On the sandbox gateway,
+    // the short timeout is fine (server is always running).
+    const isProdServer = !!REALTIME_URL;
     const socket: Socket = REALTIME_URL
       ? io(REALTIME_URL, {
           transports: ["websocket"],
           reconnection: true,
-          reconnectionAttempts: 8,
+          reconnectionAttempts: isProdServer ? Infinity : 8,
           reconnectionDelay: 1000,
-          timeout: 6000,
+          timeout: 10000,
         })
       : io(`/?XTransformPort=${REALTIME_PORT}`, {
           transports: ["websocket"],
@@ -365,9 +370,11 @@ export function usePixelRoom(roomId: string, username: string): PixelRoomApi {
       if (socket.connected) socket.emit(type, data ?? {});
     };
 
+    // Solo fallback: only after 45s in production (server may be waking),
+    // or 4s on the sandbox (server should be instantly available).
     connectTimeout = setTimeout(() => {
       if (!disposed && !socket.connected) goSolo();
-    }, 4000);
+    }, isProdServer ? 45000 : 4000);
 
     socket.on("connect", () => {
       if (disposed) return;

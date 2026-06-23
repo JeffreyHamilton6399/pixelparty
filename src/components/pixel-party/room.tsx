@@ -24,6 +24,7 @@ import { GalleryDialog } from "./gallery-dialog";
 import { ChatPanel } from "./chat-panel";
 import { ClearVoteDialog } from "./clear-vote-dialog";
 import { ShortcutsDialog } from "./shortcuts-dialog";
+import { LoadingScreen } from "./loading-screen";
 import {
   Tooltip,
   TooltipContent,
@@ -57,6 +58,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
   const [chatOpen, setChatOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [hasUnreadChat, setHasUnreadChat] = useState(false);
+  const [connectElapsed, setConnectElapsed] = useState(0);
 
   // Track unread chat (messages received while panel closed).
   const chatLen = api.chat.length;
@@ -66,6 +68,20 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
       setHasUnreadChat(true);
     }
   }, [chatLen, chatOpen]);
+
+  // Track connection time for the loading screen message.
+  useEffect(() => {
+    if (api.mode !== "connecting") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setConnectElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    const id = setInterval(() => {
+      setConnectElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [api.mode]);
 
   // Room-scoped auto-save (fires 500ms after every action).
   const { markDirty } = useRoomAutosave(roomId, api.size, api.pixelsRef, api.mode);
@@ -268,11 +284,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
         {/* Canvas */}
         <section className="relative flex min-h-0 flex-1 items-center justify-center bg-muted/30 p-2 md:p-3">
           {api.mode === "connecting" && (
-            <div className="pointer-events-none absolute left-1/2 top-2 z-10 -translate-x-1/2">
-              <span className="rounded-full bg-background/80 px-2.5 py-0.5 text-[11px] text-muted-foreground backdrop-blur">
-                Connecting…
-              </span>
-            </div>
+            <LoadingScreen elapsed={connectElapsed} />
           )}
           <PixelCanvas
             ref={canvasRef}
