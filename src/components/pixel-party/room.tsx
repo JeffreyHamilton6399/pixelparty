@@ -180,7 +180,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
       {api.mode === "solo" && (
         <div className="flex shrink-0 items-center justify-center gap-2 bg-amber-500/10 px-3 py-1 text-center text-[11px] text-amber-600 dark:text-amber-400">
           <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-          Solo mode — set NEXT_PUBLIC_REALTIME_URL on Vercel for multiplayer
+          You might be the first one here — try refreshing to reconnect
         </div>
       )}
 
