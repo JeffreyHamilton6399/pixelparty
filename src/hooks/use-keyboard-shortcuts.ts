@@ -27,6 +27,9 @@ const TOOL_KEYS: Record<string, Tool> = {
   d: "dither",
   s: "spray",
   m: "move",
+  t: "text",
+  n: "smudge",
+  a: "replace",
 };
 
 /**

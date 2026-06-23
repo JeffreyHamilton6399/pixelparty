@@ -25,6 +25,10 @@ import {
   FlipVertical,
   Contrast,
   Paintbrush,
+  Droplet,
+  Replace,
+  RotateCw,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Tool, MirrorMode } from "./pixel-canvas";
@@ -45,6 +49,8 @@ interface ToolBarProps {
   onFlipH: () => void;
   onFlipV: () => void;
   onInvert: () => void;
+  onRotateCW: () => void;
+  onRotateCCW: () => void;
   drawingDisabled?: boolean;
   orientation?: "vertical" | "horizontal";
 }
@@ -75,6 +81,8 @@ const GROUPS: { label: string; tools: { id: Tool; icon: typeof Pencil; label: st
       { id: "spray", icon: Sparkles, label: "Spray", key: "S" },
       { id: "text", icon: Type, label: "Text", key: "T" },
       { id: "move", icon: Move, label: "Move", key: "M" },
+      { id: "smudge", icon: Droplet, label: "Smudge", key: "N" },
+      { id: "replace", icon: Replace, label: "Replace color", key: "A" },
     ],
   },
 ];
@@ -106,6 +114,8 @@ export function ToolBar({
   onFlipH,
   onFlipV,
   onInvert,
+  onRotateCW,
+  onRotateCCW,
   drawingDisabled = false,
   orientation = "vertical",
 }: ToolBarProps) {
@@ -308,6 +318,36 @@ export function ToolBar({
             </Button>
           </TooltipTrigger>
           <TooltipContent side={vertical ? "right" : "top"}>Invert colors</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onRotateCW}
+              disabled={drawingDisabled}
+              aria-label="Rotate 90° clockwise"
+              className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
+            >
+              <RotateCw className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side={vertical ? "right" : "top"}>Rotate 90° CW</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onRotateCCW}
+              disabled={drawingDisabled}
+              aria-label="Rotate 90° counter-clockwise"
+              className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
+            >
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side={vertical ? "right" : "top"}>Rotate 90° CCW</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

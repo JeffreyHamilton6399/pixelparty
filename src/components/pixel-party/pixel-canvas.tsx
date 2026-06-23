@@ -24,7 +24,9 @@ export type Tool =
   | "dither"
   | "spray"
   | "move"
-  | "text";
+  | "text"
+  | "smudge"
+  | "replace";
 
 /** Brush size in pixels (1-8). 1 = single pixel. */
 export type BrushSize = number;
@@ -40,6 +42,10 @@ export interface PixelCanvasHandle {
   flipV: (onPlace: (pixels: PixelUpdate[]) => void) => void;
   /** Invert all pixel colors on the canvas. */
   invert: (onPlace: (pixels: PixelUpdate[]) => void) => void;
+  /** Rotate the whole canvas 90° clockwise. */
+  rotateCW: (onPlace: (pixels: PixelUpdate[]) => void) => void;
+  /** Rotate the whole canvas 90° counter-clockwise. */
+  rotateCCW: (onPlace: (pixels: PixelUpdate[]) => void) => void;
 }
 
 interface PixelCanvasProps {
@@ -266,6 +272,47 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
         const cells = textToCells(text, size, x, y);
         const mirrored = withMirror(cells);
         const updates = toUpdates(mirrored, color);
+        if (updates.length) onPlace(updates);
+        return;
+      }
+      if (tool === "replace") {
+        // Replace ALL pixels matching the clicked color with current color.
+        const target = pixelsRef.current[idx];
+        if (target === color) return;
+        const updates: PixelUpdate[] = [];
+        for (let i = 0; i < pixelsRef.current.length; i++) {
+          if (pixelsRef.current[i] === target) {
+            updates.push({ x: i % size, y: Math.floor(i / size), color });
+          }
+        }
+        if (updates.length) onPlace(updates);
+        return;
+      }
+      if (tool === "smudge") {
+        // Smudge: pick up the average color of the brush area and apply it.
+        const cells = brushCells(x, y);
+        let r = 0,
+          g = 0,
+          b = 0,
+          count = 0;
+        for (const c of cells) {
+          const px = pixelsRef.current[c.y * size + c.x];
+          if (px) {
+            const n = parseInt(px.slice(1), 16);
+            r += (n >> 16) & 0xff;
+            g += (n >> 8) & 0xff;
+            b += n & 0xff;
+            count++;
+          }
+        }
+        if (count === 0) return;
+        r = Math.round(r / count);
+        g = Math.round(g / count);
+        b = Math.round(b / count);
+        const smudged =
+          "#" + ((r << 16) | (g << 8) | b).toString(16).padStart(6, "0");
+        const mirrored = withMirror(cells);
+        const updates = toUpdates(mirrored, smudged);
         if (updates.length) onPlace(updates);
         return;
       }
@@ -583,6 +630,42 @@ export const PixelCanvas = forwardRef<PixelCanvasHandle, PixelCanvasProps>(
             const inv = invertHex(px);
             if (inv !== px) {
               updates.push({ x: i % s, y: Math.floor(i / s), color: inv });
+            }
+          }
+          if (updates.length) onPlace(updates);
+        },
+        rotateCW: (onPlace) => {
+          const s = size;
+          const cur = pixelsRef.current;
+          const next = new Array(s * s).fill(null) as PixelColor[];
+          // (x, y) → (s-1-y, x)
+          for (let y = 0; y < s; y++) {
+            for (let x = 0; x < s; x++) {
+              next[x * s + (s - 1 - y)] = cur[y * s + x];
+            }
+          }
+          const updates: PixelUpdate[] = [];
+          for (let i = 0; i < next.length; i++) {
+            if (next[i] !== cur[i]) {
+              updates.push({ x: i % s, y: Math.floor(i / s), color: next[i] });
+            }
+          }
+          if (updates.length) onPlace(updates);
+        },
+        rotateCCW: (onPlace) => {
+          const s = size;
+          const cur = pixelsRef.current;
+          const next = new Array(s * s).fill(null) as PixelColor[];
+          // (x, y) → (y, s-1-x)
+          for (let y = 0; y < s; y++) {
+            for (let x = 0; x < s; x++) {
+              next[(s - 1 - x) * s + y] = cur[y * s + x];
+            }
+          }
+          const updates: PixelUpdate[] = [];
+          for (let i = 0; i < next.length; i++) {
+            if (next[i] !== cur[i]) {
+              updates.push({ x: i % s, y: Math.floor(i / s), color: next[i] });
             }
           }
           if (updates.length) onPlace(updates);

@@ -68,11 +68,40 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
     }
   }, [chatLen, chatOpen]);
 
-  // Room-scoped auto-save.
-  useRoomAutosave(roomId, api.size, api.pixelsRef, api.mode);
+  // Room-scoped auto-save (fires 500ms after every action).
+  const { markDirty } = useRoomAutosave(roomId, api.size, api.pixelsRef, api.mode);
 
   const isViewer = api.myRole === "viewer";
   const drawingDisabled = isViewer;
+
+  // Wrap actions so every change marks the room dirty for auto-save.
+  const place = (pixels: Parameters<typeof api.place>[0]) => {
+    api.place(pixels);
+    markDirty();
+  };
+  const undo = () => {
+    api.undo();
+    markDirty();
+  };
+  const redo = () => {
+    api.redo();
+    markDirty();
+  };
+  const clear = () => {
+    api.clear();
+    markDirty();
+  };
+  const setSize = (s: Parameters<typeof api.setSize>[0]) => {
+    api.setSize(s);
+    markDirty();
+  };
+  const loadPixels = (
+    s: Parameters<typeof api.loadPixels>[0],
+    p: Parameters<typeof api.loadPixels>[1]
+  ) => {
+    api.loadPixels(s, p);
+    markDirty();
+  };
 
   const cycleMirror = useCallback(() => {
     setMirror((m) => MIRROR_CYCLE[(MIRROR_CYCLE.indexOf(m) + 1) % MIRROR_CYCLE.length]);
@@ -83,14 +112,16 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
   const decBrush = useCallback(() => setBrushSize((b) => Math.max(1, b - 1)), []);
   const exportPng = useCallback(() => canvasRef.current?.exportPng(), []);
   const saveGallery = useCallback(() => setGalleryOpen(true), []);
-  const flipH = useCallback(() => canvasRef.current?.flipH(api.place), [api.place]);
-  const flipV = useCallback(() => canvasRef.current?.flipV(api.place), [api.place]);
-  const invert = useCallback(() => canvasRef.current?.invert(api.place), [api.place]);
+  const flipH = useCallback(() => canvasRef.current?.flipH(place), [place]);
+  const flipV = useCallback(() => canvasRef.current?.flipV(place), [place]);
+  const invert = useCallback(() => canvasRef.current?.invert(place), [place]);
+  const rotateCW = useCallback(() => canvasRef.current?.rotateCW(place), [place]);
+  const rotateCCW = useCallback(() => canvasRef.current?.rotateCCW(place), [place]);
 
   useKeyboardShortcuts({
     setTool,
-    undo: api.undo,
-    redo: api.redo,
+    undo,
+    redo,
     cycleMirror,
     toggleGrid,
     toggleFilled,
@@ -102,7 +133,11 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
 
   const brushDisabled =
     drawingDisabled ||
-    (tool !== "pencil" && tool !== "eraser" && tool !== "dither" && tool !== "spray");
+    (tool !== "pencil" &&
+     tool !== "eraser" &&
+     tool !== "dither" &&
+     tool !== "spray" &&
+     tool !== "smudge");
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
@@ -165,8 +200,8 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
             onChange={setTool}
             canUndo={api.canUndo}
             canRedo={api.canRedo}
-            onUndo={api.undo}
-            onRedo={api.redo}
+            onUndo={undo}
+            onRedo={redo}
             filled={filled}
             onToggleFilled={toggleFilled}
             mirror={mirror}
@@ -176,6 +211,8 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
             onFlipH={flipH}
             onFlipV={flipV}
             onInvert={invert}
+            onRotateCW={rotateCW}
+            onRotateCCW={rotateCCW}
             drawingDisabled={drawingDisabled}
             orientation="vertical"
           />
@@ -184,7 +221,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
           <RecentColors color={color} onPick={setColor} layout="grid" />
           <Separator />
           <BrushButton size={brushSize} onChange={setBrushSize} disabled={brushDisabled} />
-          <SizeButton size={api.size} onChange={api.setSize} disabled={api.myRole !== "host"} />
+          <SizeButton size={api.size} onChange={setSize} disabled={api.myRole !== "host"} />
           {/* Text input when text tool active */}
           {tool === "text" && (
             <input
@@ -218,7 +255,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={api.clear}
+                  onClick={clear}
                   aria-label="Clear canvas"
                   className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-rose-500"
                 >
@@ -252,7 +289,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
             pixelsRef={api.pixelsRef}
             dirtyRef={api.dirtyRef}
             myId={api.myId}
-            onPlace={api.place}
+            onPlace={place}
             onPickColor={setColor}
             onHoverColor={tool === "eyedropper" ? setHoverColor : undefined}
           />
@@ -275,7 +312,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
           <RecentColors color={color} onPick={setColor} layout="row" />
           <Separator orientation="vertical" className="h-8" />
           <BrushButton size={brushSize} onChange={setBrushSize} disabled={brushDisabled} />
-          <SizeButton size={api.size} onChange={api.setSize} disabled={api.myRole !== "host"} />
+          <SizeButton size={api.size} onChange={setSize} disabled={api.myRole !== "host"} />
           <div className="flex-1" />
           <Button
             variant="ghost"
@@ -293,8 +330,8 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
             onChange={setTool}
             canUndo={api.canUndo}
             canRedo={api.canRedo}
-            onUndo={api.undo}
-            onRedo={api.redo}
+            onUndo={undo}
+            onRedo={redo}
             filled={filled}
             onToggleFilled={toggleFilled}
             mirror={mirror}
@@ -304,6 +341,8 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
             onFlipH={flipH}
             onFlipV={flipV}
             onInvert={invert}
+            onRotateCW={rotateCW}
+            onRotateCCW={rotateCCW}
             drawingDisabled={drawingDisabled}
             orientation="horizontal"
           />
@@ -317,7 +356,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
         open={galleryOpen}
         onOpenChange={setGalleryOpen}
         onCapture={() => canvasRef.current?.snapshot() ?? null}
-        onLoad={api.loadPixels}
+        onLoad={loadPixels}
       />
       <ClearVoteDialog vote={api.clearVote} myId={api.myId} onVote={api.voteClear} />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
