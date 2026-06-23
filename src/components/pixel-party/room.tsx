@@ -13,7 +13,6 @@ import { ToolBar } from "./toolbar";
 import { ColorPicker } from "./color-picker";
 import { BrushButton } from "./brush-button";
 import { SizeButton } from "./size-button";
-import { RecentColors } from "./recent-colors";
 import {
   PixelCanvas,
   type PixelCanvasHandle,
@@ -217,8 +216,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
             orientation="vertical"
           />
           <Separator />
-          <ColorPicker color={color} onChange={setColor} layout="stacked" />
-          <RecentColors color={color} onPick={setColor} layout="grid" />
+          <ColorPicker color={color} onChange={setColor} />
           <Separator />
           <BrushButton size={brushSize} onChange={setBrushSize} disabled={brushDisabled} />
           <SizeButton size={api.size} onChange={setSize} disabled={api.myRole !== "host"} />
@@ -308,8 +306,7 @@ export function Room({ roomId, username, onLeave }: RoomProps) {
           />
         )}
         <div className="flex items-center gap-1.5">
-          <ColorPicker color={color} onChange={setColor} layout="inline" />
-          <RecentColors color={color} onPick={setColor} layout="row" />
+          <ColorPicker color={color} onChange={setColor} className="h-8 w-8 shrink-0" />
           <Separator orientation="vertical" className="h-8" />
           <BrushButton size={brushSize} onChange={setBrushSize} disabled={brushDisabled} />
           <SizeButton size={api.size} onChange={setSize} disabled={api.myRole !== "host"} />

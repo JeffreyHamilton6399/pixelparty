@@ -27,11 +27,11 @@ import {
   Paintbrush,
   Droplet,
   Replace,
-  RotateCw,
-  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Tool, MirrorMode } from "./pixel-canvas";
+import { FlipButton } from "./flip-button";
+import { RotateButton } from "./rotate-button";
 
 interface ToolBarProps {
   tool: Tool;
@@ -88,15 +88,11 @@ const GROUPS: { label: string; tools: { id: Tool; icon: typeof Pencil; label: st
 ];
 
 const MIRROR_LABELS: Record<MirrorMode, { icon: typeof FlipHorizontal; label: string }> = {
-  none: { icon: FlipHorizontal2, label: "Mirror: off" },
+  none: { icon: FlipHorizontal, label: "Mirror: off" },
   horizontal: { icon: FlipHorizontal, label: "Mirror: horizontal" },
   vertical: { icon: FlipVertical, label: "Mirror: vertical" },
-  quad: { icon: FlipHorizontal2, label: "Mirror: 4-way" },
+  quad: { icon: FlipHorizontal, label: "Mirror: 4-way" },
 };
-
-function FlipHorizontal2(props: React.ComponentProps<typeof FlipHorizontal>) {
-  return <FlipHorizontal {...props} />;
-}
 
 export function ToolBar({
   tool,
@@ -273,37 +269,8 @@ export function ToolBar({
 
         <Sep vertical={vertical} />
 
-        {/* Canvas actions: flip + invert */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onFlipH}
-              disabled={drawingDisabled}
-              aria-label="Flip horizontal"
-              className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
-            >
-              <FlipHorizontal className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side={vertical ? "right" : "top"}>Flip horizontal</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onFlipV}
-              disabled={drawingDisabled}
-              aria-label="Flip vertical"
-              className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
-            >
-              <FlipVertical className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side={vertical ? "right" : "top"}>Flip vertical</TooltipContent>
-        </Tooltip>
+        {/* Canvas actions: flip (popover) + invert + rotate (popover) */}
+        <FlipButton onFlipH={onFlipH} onFlipV={onFlipV} disabled={drawingDisabled} />
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -319,36 +286,7 @@ export function ToolBar({
           </TooltipTrigger>
           <TooltipContent side={vertical ? "right" : "top"}>Invert colors</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onRotateCW}
-              disabled={drawingDisabled}
-              aria-label="Rotate 90° clockwise"
-              className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
-            >
-              <RotateCw className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side={vertical ? "right" : "top"}>Rotate 90° CW</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onRotateCCW}
-              disabled={drawingDisabled}
-              aria-label="Rotate 90° counter-clockwise"
-              className="h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side={vertical ? "right" : "top"}>Rotate 90° CCW</TooltipContent>
-        </Tooltip>
+        <RotateButton onRotateCW={onRotateCW} onRotateCCW={onRotateCCW} disabled={drawingDisabled} />
       </div>
     </TooltipProvider>
   );
