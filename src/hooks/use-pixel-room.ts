@@ -380,7 +380,7 @@ export function usePixelRoom(roomId: string, username: string): PixelRoomApi {
       if (disposed) return;
       if (connectTimeout) clearTimeout(connectTimeout);
       setMode("connected");
-      setMyId(socket.id);
+      setMyId(socket.id ?? null);
       socket.emit(EVENTS.JOIN, { roomId, name: username });
     });
 

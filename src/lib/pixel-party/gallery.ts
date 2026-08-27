@@ -79,8 +79,9 @@ export function makeThumbnail(size: CanvasSize, pixels: PixelColor[]): string {
   if (!ctx) return "";
   ctx.imageSmoothingEnabled = false;
   for (let i = 0; i < pixels.length; i++) {
-    if (!pixels[i]) continue;
-    ctx.fillStyle = pixels[i];
+    const color = pixels[i];
+    if (!color) continue;
+    ctx.fillStyle = color;
     ctx.fillRect((i % size) * cp, Math.floor(i / size) * cp, cp, cp);
   }
   return c.toDataURL("image/png");

@@ -260,7 +260,7 @@ function attachHandlers(server: Server) {
     }
 
     const size = room.size;
-    const cleaned = [];
+    const cleaned: { x: number; y: number; color: PixelColor }[] = [];
     for (const p of data.pixels) {
       if (
         typeof p?.x !== "number" ||
